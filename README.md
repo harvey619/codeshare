@@ -8,7 +8,7 @@ rooms expire on their own. Built for sharing code live in small classes.
 
 ## Status
 
-Planning. The design and build milestones will live in `docs/`.
+Planning. See [the design](docs/design.md) and [the build guide](docs/guide.md).
 
 ## Features (planned)
 

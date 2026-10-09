@@ -38,7 +38,7 @@ Browser (Vite + React + CodeMirror 6)
   │
   ├─ GET /, /:room ─────────► Worker ── serves the SPA (static assets)
   │
-  ├─ WebSocket /ws/:room ───► Worker ──► Room Durable Object (named by :room)
+  ├─ WebSocket /parties/room/:room ─► Worker ──► Room Durable Object (named by :room)
   │                                       • Yjs doc in memory
   │                                       • relays doc updates + awareness to every socket
   │                                       • hibernates when idle
@@ -55,12 +55,13 @@ Browser (Vite + React + CodeMirror 6)
 - `/` → client picks a random 6-character name and `history.replaceState`s to `/:name`
 - `/:room` → open (or create) that room. No router library: read `location.pathname`
 - Room names: `^[a-z0-9-]{1,40}$`, lowercased. Anything else → redirect to a cleaned name or `/`
-- Worker routes `/ws/*` and `/api/*`; everything else falls through to the SPA
+- Worker routes `/parties/*` (partyserver's default WebSocket path, via `routePartykitRequest`)
+  and `/api/*`; everything else falls through to the SPA
   (`not_found_handling = "single-page-application"`)
 
 ### Room lifecycle
 
-1. First connection to `/ws/:room` → `idFromName(room)` creates the DO lazily
+1. First connection to `/parties/room/:room` → the DO is created lazily by name
 2. On load the DO reads its latest snapshot from SQLite (if any) into the Y.Doc
 3. Edits are relayed live; the DO writes a snapshot at most every ~5 seconds while dirty
 4. Every edit reschedules a single alarm for `now + 24h`
@@ -104,11 +105,12 @@ Browser (Vite + React + CodeMirror 6)
 
 ## Limits and abuse controls
 
-All enforced **server-side** in the DO (the client checks are just for UX):
+Enforced **server-side** in the DO unless noted (client checks are for UX):
 
 | Limit | Value | Where |
 |---|---|---|
-| Doc size | 200 KB encoded | Reject updates that would exceed it; tell the client |
+| Doc size (soft) | 200,000 characters | Client: CodeMirror change filter blocks typing past it |
+| Doc size (hard) | 1 MB encoded | DO: on save, refuse to store, tell everyone, close sockets. A CRDT update can't be un-applied, so the server guards storage, not keystrokes |
 | WebSocket message size | 256 KB | Close the socket with a policy code |
 | Messages per connection | ~30/s sustained, burst 60 | In-memory token bucket per socket |
 | Connections per room | 50 | Refuse beyond that |
