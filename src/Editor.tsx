@@ -14,6 +14,8 @@ import { yCollab } from "y-codemirror.next";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { LIMITS } from "../shared/limits";
 import { getLocalUser, saveLocalUser, type User } from "./presence";
+import { compressImage, isAcceptedImage, uploadImage, type ImageMeta } from "./images";
+import ImageStrip from "./ImageStrip";
 
 const LANGUAGES: Record<string, () => Extension> = {
   JavaScript: () => javascript(),
@@ -41,6 +43,9 @@ export default function Editor({ room, dark }: { room: string; dark: boolean }) 
   const [others, setOthers] = useState<User[]>([]);
   const awareness = useRef<YProvider["awareness"] | null>(null);
   const meta = useRef<Y.Map<string> | null>(null);
+  const [images, setImages] = useState<ImageMeta[]>([]);
+  const [imageError, setImageError] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
     const doc = new Y.Doc();
@@ -90,8 +95,52 @@ export default function Editor({ room, dark }: { room: string; dark: boolean }) 
     };
     ymeta.observe(applyLanguage);
 
+    const yimages = doc.getArray<ImageMeta>("images");
+    const updateImages = () => setImages(yimages.toArray());
+    yimages.observe(updateImages);
+
+    async function addImage(file: File) {
+      setImageError(null);
+      setUploading(true);
+      try {
+        const { blob, w, h } = await compressImage(file, LIMITS.imageBytes);
+        const id = await uploadImage(room, blob);
+        yimages.push([{ id, name: file.name || "pasted image", w, h, size: blob.size, addedAt: Date.now() }]);
+      } catch (err) {
+        setImageError(err instanceof Error ? err.message : "Upload failed");
+      } finally {
+        setUploading(false);
+      }
+    }
+
+    const imageFrom = (files: FileList | undefined) => [...(files ?? [])].find(isAcceptedImage);
+
+    const onPaste = (e: ClipboardEvent) => {
+      const file = imageFrom(e.clipboardData?.files);
+      if (!file) return;
+      e.preventDefault();
+      e.stopPropagation();
+      addImage(file);
+    };
+    const onDrop = (e: DragEvent) => {
+      const file = imageFrom(e.dataTransfer?.files);
+      if (!file) return;
+      e.preventDefault();
+      e.stopPropagation();
+      addImage(file);
+    };
+    const onDragOver = (e: DragEvent) => e.preventDefault();
+
+    document.addEventListener("paste", onPaste, true);
+    document.addEventListener("drop", onDrop, true);
+    document.addEventListener("dragover", onDragOver);
+
     return () => {
       ymeta.unobserve(applyLanguage);
+      yimages.unobserve(updateImages);
+      document.removeEventListener("paste", onPaste, true);
+      document.removeEventListener("drop", onDrop, true);
+      document.removeEventListener("dragover", onDragOver);
       provider.awareness.off("change", updateOthers);
       editor.destroy();
       provider.destroy();
@@ -136,7 +185,10 @@ export default function Editor({ room, dark }: { room: string; dark: boolean }) 
           ))}
         </ul>
       </div>
-      <div ref={host} className="editor" />
+      <div className="workspace">
+        <div ref={host} className="editor" />
+        <ImageStrip room={room} images={images} error={imageError} busy={uploading} />
+      </div>
     </>
   );
 }
