@@ -73,11 +73,11 @@ wrangler.jsonc, vite.config.ts, playwright.config.ts
 📚 Learn first: [How Workers work](https://developers.cloudflare.com/workers/reference/how-workers-works/),
 [Durable Objects overview](https://developers.cloudflare.com/durable-objects/what-are-durable-objects/).
 
-- [ ] Create a free Cloudflare account. Skip any billing prompts; nothing here needs a card.
-- [ ] `npx wrangler login`
-- [ ] 🤝 Scaffold Vite + React + TS with `@cloudflare/vite-plugin` into this repo, keeping the
+- [x] Create a free Cloudflare account. Skip any billing prompts; nothing here needs a card.
+- [x] `npx wrangler login`
+- [x] 🤝 Scaffold Vite + React + TS with `@cloudflare/vite-plugin` into this repo, keeping the
       existing `README.md`, `.gitignore`, and `docs/`. Add Vitest.
-- [ ] 🤝 `wrangler.jsonc`:
+- [x] 🤝 `wrangler.jsonc`:
   ```jsonc
   {
     "name": "codeshare",
@@ -91,8 +91,8 @@ wrangler.jsonc, vite.config.ts, playwright.config.ts
     "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Room"] }]
   }
   ```
-- [ ] `npm run dev` shows the React page at `localhost:5173`.
-- [ ] `npx wrangler deploy` and open the `*.workers.dev` URL.
+- [x] `npm run dev` shows the React page at `localhost:5173`.
+- [x] `npx wrangler deploy` and open the `*.workers.dev` URL.
 
 ✅ Done when the page loads both locally and on your `workers.dev` URL, from both Macs after a `git pull`.
 
