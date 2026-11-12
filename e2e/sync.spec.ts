@@ -81,3 +81,13 @@ test("content survives everyone leaving", async ({ browser }) => {
   await fresh.goto(room);
   await expect.poll(() => docText(fresh.locator(".cm-content")), { timeout: 5000 }).toContain("keep me");
 });
+test("sees the other user", async ({ browser }) => {
+  const room = `/e2e-${Date.now()}`;
+  const a = await (await browser.newContext()).newPage();
+  const b = await (await browser.newContext()).newPage();
+  await b.goto(room);
+  await a.goto(room);
+
+  const nameA = (await a.locator("button.person").innerText()).replace(" (you)", "");
+  await expect(b.locator("li.person")).toContainText(nameA, { timeout: 2000 });
+});

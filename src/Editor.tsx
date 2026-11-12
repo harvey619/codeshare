@@ -11,7 +11,9 @@ import { java } from "@codemirror/lang-java";
 import * as Y from "yjs";
 import YProvider from "y-partyserver/provider";
 import { yCollab } from "y-codemirror.next";
+import { oneDark } from "@codemirror/theme-one-dark";
 import { LIMITS } from "../shared/limits";
+import { getLocalUser, saveLocalUser, type User } from "./presence";
 
 const LANGUAGES: Record<string, () => Extension> = {
   JavaScript: () => javascript(),
@@ -28,12 +30,17 @@ const sizeLimit = EditorState.changeFilter.of(
 
 type Status = "connecting" | "live" | "offline";
 
-export default function Editor({ room }: { room: string }) {
+export default function Editor({ room, dark }: { room: string; dark: boolean }) {
   const host = useRef<HTMLDivElement>(null);
   const language = useRef(new Compartment());
-  const meta = useRef<Y.Map<string> | null>(null);
+  const theme = useRef(new Compartment());
+  const view = useRef<EditorView | null>(null);
   const [lang, setLang] = useState("JavaScript");
   const [status, setStatus] = useState<Status>("connecting");
+  const [me, setMe] = useState(getLocalUser);
+  const [others, setOthers] = useState<User[]>([]);
+  const awareness = useRef<YProvider["awareness"] | null>(null);
+  const meta = useRef<Y.Map<string> | null>(null);
 
   useEffect(() => {
     const doc = new Y.Doc();
@@ -43,11 +50,23 @@ export default function Editor({ room }: { room: string }) {
 
     const provider = new YProvider(location.host, room, doc, { party: "room" });
 
+    awareness.current = provider.awareness;
+    provider.awareness.setLocalStateField("user", { ...getLocalUser(), colorLight: getLocalUser().color + "33" });
+
+    const updateOthers = () => {
+      const users: User[] = [];
+      provider.awareness.getStates().forEach((state, clientId) => {
+        if (clientId !== provider.awareness.clientID && state.user) users.push(state.user);
+      });
+      setOthers(users);
+    };
+    provider.awareness.on("change", updateOthers);
+
     provider.on("status", ({ status }: { status: string }) => {
       setStatus(status === "connected" ? "live" : status === "connecting" ? "connecting" : "offline");
     });
 
-    const view = new EditorView({
+    const editor = new EditorView({
       parent: host.current!,
       state: EditorState.create({
         doc: ytext.toString(),
@@ -55,26 +74,43 @@ export default function Editor({ room }: { room: string }) {
           basicSetup,
           sizeLimit,
           language.current.of(LANGUAGES.JavaScript()),
+          theme.current.of(dark ? oneDark : []),
           yCollab(ytext, provider.awareness),
         ],
       }),
     });
 
+    view.current = editor;
+
     const applyLanguage = () => {
       const name = ymeta.get("language") ?? "JavaScript";
       if (!LANGUAGES[name]) return;
       setLang(name);
-      view.dispatch({ effects: language.current.reconfigure(LANGUAGES[name]()) });
+      editor.dispatch({ effects: language.current.reconfigure(LANGUAGES[name]()) });
     };
     ymeta.observe(applyLanguage);
 
     return () => {
       ymeta.unobserve(applyLanguage);
-      view.destroy();
+      provider.awareness.off("change", updateOthers);
+      editor.destroy();
       provider.destroy();
       doc.destroy();
     };
   }, [room]);
+
+  useEffect(() => {
+    view.current?.dispatch({ effects: theme.current.reconfigure(dark ? oneDark : []) });
+  }, [dark]);
+
+  function rename() {
+    const name = prompt("Your name", me.name)?.trim().slice(0, 30);
+    if (!name) return;
+    const user = { ...me, name };
+    saveLocalUser(user);
+    setMe(user);
+    awareness.current?.setLocalStateField("user", { ...user, colorLight: user.color + "33" });
+  }
 
   return (
     <>
@@ -85,6 +121,20 @@ export default function Editor({ room }: { room: string }) {
           ))}
         </select>
         <span className={`status ${status}`}>{status}</span>
+        <ul className="people">
+          <li>
+            <button className="person" onClick={rename} title="Rename yourself">
+              <span className="dot" style={{ background: me.color }} />
+              {me.name} (you)
+            </button>
+          </li>
+          {others.map((u, i) => (
+            <li key={i} className="person">
+              <span className="dot" style={{ background: u.color }} />
+              {u.name}
+            </li>
+          ))}
+        </ul>
       </div>
       <div ref={host} className="editor" />
     </>
