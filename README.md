@@ -2,7 +2,7 @@
 
 Share a link, code together live. Open any URL like `/my-room` and you're in a room anyone with the link can edit.
 
-**Live:** https://code.harveys.workers.dev
+**Live:** https://harveycodes.com
 
 Built for small coding classes: live editing with named cursors, syntax highlighting, images pasted straight from the clipboard, and rooms that delete themselves 24h after the last edit. No accounts.
 
