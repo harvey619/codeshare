@@ -31,6 +31,12 @@ const sizeLimit = EditorState.changeFilter.of(
 );
 
 type Status = "connecting" | "live" | "offline";
+const CLOSE_REASONS: Record<number, string> = {
+  1008: "You were sending too fast. Reconnecting…",
+  1009: "That change was too large to send.",
+  1013: "This room is full (50 people max).",
+  4000: "This room expired after 24h without edits.",
+};
 
 export default function Editor({ room, dark }: { room: string; dark: boolean }) {
   const host = useRef<HTMLDivElement>(null);
@@ -39,6 +45,7 @@ export default function Editor({ room, dark }: { room: string; dark: boolean }) 
   const view = useRef<EditorView | null>(null);
   const [lang, setLang] = useState("JavaScript");
   const [status, setStatus] = useState<Status>("connecting");
+  const [notice, setNotice] = useState<string | null>(null);
   const [me, setMe] = useState(getLocalUser);
   const [others, setOthers] = useState<User[]>([]);
   const awareness = useRef<YProvider["awareness"] | null>(null);
@@ -69,6 +76,15 @@ export default function Editor({ room, dark }: { room: string; dark: boolean }) 
 
     provider.on("status", ({ status }: { status: string }) => {
       setStatus(status === "connected" ? "live" : status === "connecting" ? "connecting" : "offline");
+    });
+    
+    provider.on("connection-close", (event: CloseEvent | null) => {
+      const reason = event && CLOSE_REASONS[event.code];
+      if (reason) setNotice(reason);
+    });
+
+    provider.on("custom-message", (message: string) => {
+      if (message === "too-large") setNotice("This room is too large to save. Delete some content.");
     });
 
     const editor = new EditorView({
@@ -170,6 +186,11 @@ export default function Editor({ room, dark }: { room: string; dark: boolean }) 
           ))}
         </select>
         <span className={`status ${status}`}>{status}</span>
+        {notice && (
+          <button className="notice" onClick={() => setNotice(null)} title="Dismiss">
+            {notice} ✕
+          </button>
+        )}        
         <ul className="people">
           <li>
             <button className="person" onClick={rename} title="Rename yourself">
