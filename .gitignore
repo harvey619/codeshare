@@ -6,7 +6,8 @@ dist/
 .dev.vars
 .wrangler/
 .DS_Store
-
+test-results/
+playwright-report/
 # local AI tooling, not part of the project
 CLAUDE.md
 .claude/

@@ -19,7 +19,7 @@ export default function App() {
         <button onClick={copyLink}>{copied ? "Copied" : "Copy link"}</button>
         <a href="/">New room</a>
       </header>
-      <Editor />
+      <Editor room={room} />
     </div>
   );
 }
