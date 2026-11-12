@@ -28,13 +28,11 @@ test("concurrent typing converges", async ({ browser }) => {
     editorA.pressSequentially("aaaa", { delay: 50 }),
     editorB.pressSequentially("bbbb", { delay: 50 }),
   ]);
-  await a.waitForTimeout(1000);
+  await expect.poll(async () => (await docText(editorA)) === (await docText(editorB)), { timeout: 5000 }).toBe(true);
 
-  const textA = await docText(editorA);
-  const textB = await docText(editorB);
-  expect(textA).toBe(textB);
-  expect(textA.match(/a/g)?.length).toBe(4);
-  expect(textA.match(/b/g)?.length).toBe(4);
+  const text = await docText(editorA);
+  expect(text.match(/a/g)?.length).toBe(4);
+  expect(text.match(/b/g)?.length).toBe(4);
 });
 
 test("offline edits merge on reconnect", async ({ browser }) => {

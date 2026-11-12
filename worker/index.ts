@@ -136,10 +136,17 @@ export class Room extends YServer<Env> {
 }
 
 const IMAGE_ROUTE = /^\/api\/rooms\/([^/]+)\/images(?:\/[0-9a-f-]+)?$/;
+const ROOM_SOCKET = /^\/parties\/room\/[a-z0-9-]{1,40}$/;
 
 export default {
   async fetch(request, env) {
-    const match = new URL(request.url).pathname.match(IMAGE_ROUTE);
+    const path = new URL(request.url).pathname;
+
+    if (path.startsWith("/parties/") && !ROOM_SOCKET.test(path)) {
+      return json({ error: "bad room" }, 400);
+    }
+
+    const match = path.match(IMAGE_ROUTE);
     if (match) {
       const room = normalizeRoomName(decodeURIComponent(match[1]));
       if (!room) return json({ error: "bad room" }, 400);
