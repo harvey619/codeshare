@@ -24,7 +24,10 @@
     "codemirror": "^6.0.2",
     "partyserver": "^0.5.10",
     "react": "^19.3.1",
-    "react-dom": "^19.3.1"
+    "react-dom": "^19.3.1",
+    "y-codemirror.next": "^0.3.6",
+    "y-partyserver": "^2.2.0",
+    "yjs": "^13.6.33"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.69.1",
