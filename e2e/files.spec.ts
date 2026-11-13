@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 
 test("uploaded file appears for others and downloads intact", async ({ browser }) => {
   test.setTimeout(60_000); // a 3.2 MB upload over a real connection is slow on production
-  const room = `/e2e-${Date.now()}`;
+  const room = `/e2e-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const a = await (await browser.newContext()).newPage();
   const b = await (await browser.newContext()).newPage();
   await a.goto(room);
@@ -30,7 +30,7 @@ test("uploaded file appears for others and downloads intact", async ({ browser }
 });
 
 test("files over 10 MB are refused", async ({ request }) => {
-  const res = await request.post(`/api/rooms/e2e-${Date.now()}/files`, {
+  const res = await request.post(`/api/rooms/e2e-${Date.now()}-${Math.random().toString(36).slice(2, 8)}/files`, {
     data: Buffer.alloc(11_000_000, 1),
     headers: { "X-File-Name": "big.bin" },
   });

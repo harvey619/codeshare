@@ -1,7 +1,7 @@
 import { getServerByName, routePartykitRequest, type Connection, type ConnectionContext, type WSMessage } from "partyserver";
 import { YServer } from "y-partyserver";
 import * as Y from "yjs";
-import { LIMITS, TokenBucket, normalizeRoomName } from "../shared/limits";
+import { LIMITS, TokenBucket, isReservedRoom, normalizeRoomName } from "../shared/limits";
 import { sniffImageType } from "./images";
 
 const json = (body: unknown, status: number) => Response.json(body, { status });
@@ -231,7 +231,7 @@ export default {
   async fetch(request, env) {
     const path = new URL(request.url).pathname;
 
-    if (path.startsWith("/parties/") && !ROOM_SOCKET.test(path)) {
+    if (path.startsWith("/parties/") && (!ROOM_SOCKET.test(path) || isReservedRoom(path.split("/")[3]))) {
       return json({ error: "bad room" }, 400);
     }
 

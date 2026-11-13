@@ -14,6 +14,12 @@ describe("normalizeRoomName", () => {
     expect(normalizeRoomName("x".repeat(200))).toBe("x".repeat(40));
   });
 
+  it("reserves the tools prefix", () => {
+    expect(normalizeRoomName("tools")).toBeNull();
+    expect(normalizeRoomName("tools/qr")).toBeNull();
+    expect(normalizeRoomName("toolshed")).toBe("toolshed");
+  });
+
   it("returns null when nothing usable is left", () => {
     expect(normalizeRoomName("")).toBeNull();
     expect(normalizeRoomName("!!!")).toBeNull();

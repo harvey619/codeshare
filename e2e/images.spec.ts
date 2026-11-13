@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 
 test("pasted image appears for others", async ({ browser }) => {
-  const room = `/e2e-${Date.now()}`;
+  const room = `/e2e-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const a = await (await browser.newContext()).newPage();
   const b = await (await browser.newContext()).newPage();
   await a.goto(room);
@@ -31,7 +31,7 @@ test("pasted image appears for others", async ({ browser }) => {
 });
 
 test("svg and oversized are refused", async ({ request }) => {
-  const url = `/api/rooms/e2e-${Date.now()}/images`;
+  const url = `/api/rooms/e2e-${Date.now()}-${Math.random().toString(36).slice(2, 8)}/images`;
 
   const svg = await request.post(url, {
     data: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'),

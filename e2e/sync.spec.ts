@@ -13,11 +13,13 @@ const docText = (editor: Locator) =>
   );
 
 test("concurrent typing converges", async ({ browser }) => {
-  const room = `/e2e-${Date.now()}`;
+  const room = `/e2e-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const a = await (await browser.newContext()).newPage();
   const b = await (await browser.newContext()).newPage();
   await a.goto(room);
   await b.goto(room);
+  await expect(a.locator(".status")).toHaveText("live");
+  await expect(b.locator(".status")).toHaveText("live");
 
   const editorA = a.locator(".cm-content");
   const editorB = b.locator(".cm-content");
@@ -36,7 +38,7 @@ test("concurrent typing converges", async ({ browser }) => {
 });
 
 test("offline edits merge on reconnect", async ({ browser }) => {
-  const room = `/e2e-${Date.now()}`;
+  const room = `/e2e-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const ctxA = await browser.newContext();
   const a = await ctxA.newPage();
   const b = await (await browser.newContext()).newPage();
@@ -65,7 +67,7 @@ test("offline edits merge on reconnect", async ({ browser }) => {
 });
 
 test("content survives everyone leaving", async ({ browser }) => {
-  const room = `/e2e-${Date.now()}`;
+  const room = `/e2e-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const ctx = await browser.newContext();
   const a = await ctx.newPage();
   await a.goto(room);
@@ -80,7 +82,7 @@ test("content survives everyone leaving", async ({ browser }) => {
   await expect.poll(() => docText(fresh.locator(".cm-content")), { timeout: 5000 }).toContain("keep me");
 });
 test("sees the other user", async ({ browser }) => {
-  const room = `/e2e-${Date.now()}`;
+  const room = `/e2e-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const a = await (await browser.newContext()).newPage();
   const b = await (await browser.newContext()).newPage();
   await b.goto(room);

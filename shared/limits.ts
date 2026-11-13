@@ -14,7 +14,13 @@ export function normalizeRoomName(raw: string): string | null {
     .replace(/[^a-z0-9]+/g, "-")
     .slice(0, MAX_ROOM_LEN)
     .replace(/^-+|-+$/g, "");
-  return name === "" ? null : name;
+  if (name === "" || isReservedRoom(name)) return null;
+  return name;
+}
+
+// "/tools/..." is the tools area, never a room. "/tools/qr" would normalise to "tools-qr".
+export function isReservedRoom(name: string): boolean {
+  return name === "tools" || name.startsWith("tools-");
 }
 
 const ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789";

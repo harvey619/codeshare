@@ -161,3 +161,40 @@ button.person:hover { text-decoration: underline; }
   .workspace { flex-direction: column; }
   .sidebar { width: auto; max-height: 38%; border-left: 0; border-top: 1px solid var(--border); }
 }
+
+/* Tools */
+.tools { flex: 1; overflow-y: auto; width: 100%; max-width: 860px; margin: 0 auto; padding: 24px 20px 48px; }
+.tools h1 { margin: 8px 0 20px; font-size: 22px; }
+.tools-loading { padding: 24px 20px; color: var(--muted); }
+.back { color: var(--muted); text-decoration: none; font-size: 13px; }
+.back:hover { color: var(--text); }
+.tool-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+.tool-card {
+  display: flex; flex-direction: column; gap: 6px; height: 100%;
+  padding: 16px; border: 1px solid var(--border); border-radius: 12px;
+  background: var(--surface); color: var(--text); text-decoration: none;
+}
+.tool-card:hover { border-color: var(--accent); }
+.tool-card span { color: var(--muted); font-size: 13px; }
+.qr { display: grid; grid-template-columns: 1fr 280px; gap: 24px; align-items: start; }
+.qr-form { display: flex; flex-direction: column; gap: 8px; }
+.qr-form label { font-weight: 600; font-size: 13px; }
+.qr-form textarea {
+  padding: 10px 12px; font: inherit; resize: vertical;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text);
+}
+.qr-form textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.qr-form select { height: 32px; }
+.qr-actions { display: flex; gap: 8px; margin-top: 8px; }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.qr-preview {
+  display: flex; align-items: center; justify-content: center; aspect-ratio: 1;
+  border: 1px solid var(--border); border-radius: 12px; background: #fff; padding: 12px;
+}
+.qr-preview img { width: 100%; height: 100%; image-rendering: pixelated; }
+.qr-preview .side-note { color: #6b7180; text-align: center; }
+@media (max-width: 720px) {
+  .tools { padding: 16px 12px 32px; }
+  .qr { grid-template-columns: 1fr; }
+  .qr-preview { max-width: 320px; width: 100%; margin: 0 auto; }
+}
