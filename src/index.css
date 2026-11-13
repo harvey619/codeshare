@@ -222,3 +222,81 @@ button.person:hover { text-decoration: underline; }
 @media (max-width: 720px) {
   .bg-compare { grid-template-columns: 1fr; }
 }
+
+/* Shared tool bits */
+.code-area {
+  width: 100%; min-height: 220px; padding: 10px 12px; resize: vertical;
+  font: 13px/1.5 ui-monospace, "SF Mono", Menlo, monospace; tab-size: 2;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text);
+}
+.code-area:focus, .picker-list textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.json-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; font-size: 13px; }
+.json-bar label { display: inline-flex; align-items: center; gap: 6px; }
+.link { background: none; border: 0; padding: 0 0 0 8px; font: inherit; color: var(--accent); cursor: pointer; text-decoration: underline; }
+
+/* JSON */
+.json { display: flex; flex-direction: column; gap: 12px; }
+.json .code-area { min-height: 50vh; }
+.json-status { margin: 0; font-size: 13px; }
+.json-status.ok { color: var(--live); }
+.json-status.bad { color: var(--offline); }
+
+/* Diff */
+.diff { display: flex; flex-direction: column; gap: 12px; }
+.diff-inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.diff-inputs label { display: flex; flex-direction: column; gap: 6px; font-weight: 600; font-size: 13px; }
+.diff-inputs .code-area { min-height: 180px; font-weight: 400; }
+.diff-summary { margin-left: auto; font-family: ui-monospace, monospace; }
+.plus { color: var(--live); }
+.minus { color: var(--offline); }
+.diff-out {
+  border: 1px solid var(--border); border-radius: 8px; background: var(--surface); overflow-x: auto;
+  font: 13px/1.5 ui-monospace, "SF Mono", Menlo, monospace;
+}
+.diff-row { display: grid; grid-template-columns: 3.5em 3.5em 1.5em 1fr; min-width: max-content; }
+.diff-row .no { color: var(--muted); text-align: right; padding-right: 8px; user-select: none; }
+.diff-row .sign { user-select: none; text-align: center; }
+.diff-row code { white-space: pre; font: inherit; padding-right: 12px; }
+.diff-row.add { background: color-mix(in srgb, var(--live) 14%, transparent); }
+.diff-row.del { background: color-mix(in srgb, var(--offline) 14%, transparent); }
+.diff-row.add mark { background: color-mix(in srgb, var(--live) 38%, transparent); color: inherit; border-radius: 2px; }
+.diff-row.del mark { background: color-mix(in srgb, var(--offline) 38%, transparent); color: inherit; border-radius: 2px; }
+
+/* Picker & timer */
+.picker { display: grid; grid-template-columns: 240px 1fr; gap: 20px; align-items: start; }
+.picker-list { display: flex; flex-direction: column; gap: 6px; }
+.picker-list label { font-weight: 600; font-size: 13px; }
+.picker-list textarea {
+  padding: 10px 12px; font: inherit; resize: vertical;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text);
+}
+.picker-stage { display: flex; flex-direction: column; gap: 16px; }
+.picker-stage:fullscreen { justify-content: center; padding: 5vw; background: var(--bg); }
+.picker-card {
+  display: flex; flex-direction: column; align-items: center; gap: 14px; text-align: center;
+  padding: 24px 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface);
+}
+.picker-name { font-size: clamp(28px, 6vw, 56px); font-weight: 700; letter-spacing: -0.02em; min-height: 1.2em; overflow-wrap: anywhere; }
+.picker-name.shuffling { color: var(--muted); }
+.picker-row { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px; }
+.btn.big { height: 40px; padding: 0 20px; font-size: 15px; }
+.timer { font: 700 clamp(56px, 14vw, 120px)/1 ui-monospace, "SF Mono", Menlo, monospace; font-variant-numeric: tabular-nums; }
+.picker-stage:fullscreen .timer { font-size: 22vw; }
+.picker-stage:fullscreen .picker-name { font-size: 9vw; }
+.timer-custom { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+.timer-custom input {
+  width: 64px; height: 28px; padding: 0 8px; font: inherit; color: var(--text);
+  border: 1px solid var(--border); border-radius: 6px; background: var(--bg);
+}
+.timer-done { border-color: var(--offline); }
+.timer-done .timer { color: var(--offline); }
+.timer-note { margin: 0; font-weight: 700; color: var(--offline); }
+@media (prefers-reduced-motion: no-preference) {
+  .timer-done { animation: pulse 1s ease-in-out 3; }
+}
+@keyframes pulse { 50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--offline) 30%, transparent); } }
+
+@media (max-width: 720px) {
+  .picker, .diff-inputs { grid-template-columns: 1fr; }
+  .diff-summary { margin-left: 0; }
+}

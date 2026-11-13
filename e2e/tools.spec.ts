@@ -52,3 +52,65 @@ test("background remover page loads and rejects non-images", async ({ page }) =>
   // Nothing heavy is fetched until a real image is given.
   expect(models).toEqual([]);
 });
+
+test("picker goes through everyone before repeating, and the list is remembered", async ({ page }) => {
+  await page.goto("/tools/picker");
+  await page.locator("#picker-names").fill("Ana\nBen\nCy");
+  const name = page.locator(".picker-name");
+  const pickBtn = page.getByRole("button", { name: "Pick a student" });
+
+  const got = new Set<string>();
+  for (let i = 0; i < 3; i++) {
+    await pickBtn.click();
+    await expect(pickBtn).toBeEnabled(); // shuffle finished
+    got.add((await name.innerText()).trim());
+  }
+  expect([...got].sort()).toEqual(["Ana", "Ben", "Cy"]);
+  await expect(page.getByText("Everyone's had a turn")).toBeVisible();
+
+  await page.reload();
+  await expect(page.locator("#picker-names")).toHaveValue("Ana\nBen\nCy");
+});
+
+test("timer counts down and finishes", async ({ page }) => {
+  await page.goto("/tools/picker");
+  await page.getByLabel("Minutes").fill("0.1"); // 6 seconds
+  await expect(page.locator(".timer")).toHaveText("0:06");
+  await page.getByRole("button", { name: "Start" }).click();
+  await expect.poll(() => page.locator(".timer").innerText(), { timeout: 4000 }).not.toBe("0:06");
+  await expect(page.getByText("Time's up!")).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator(".timer")).toHaveText("0:00");
+});
+
+test("JSON tool formats, minifies and points at errors", async ({ page }) => {
+  await page.goto("/tools/json");
+  const area = page.getByLabel("JSON");
+  await area.fill('{"b":1,"a":[1,2]}');
+  await expect(page.locator(".json-status")).toContainText("Valid JSON (object, 2 keys)");
+
+  await page.getByLabel("Sort keys").check();
+  await page.getByRole("button", { name: "Format" }).click();
+  await expect(area).toHaveValue('{\n  "a": [\n    1,\n    2\n  ],\n  "b": 1\n}');
+  await page.getByRole("button", { name: "Minify" }).click();
+  await expect(area).toHaveValue('{"a":[1,2],"b":1}');
+
+  await area.fill('{\n  "a": 1,\n}');
+  await expect(page.locator(".json-status")).toContainText("Line 3");
+  await expect(page.getByRole("button", { name: "Format" })).toBeDisabled();
+});
+
+test("diff checker shows added and removed lines", async ({ page }) => {
+  await page.goto("/tools/diff");
+  const left = page.getByLabel("Original");
+  const right = page.getByLabel("Changed");
+  await left.fill("a\nb\nc\n");
+  await right.fill("a\nB\nc\nd\n");
+  await expect(page.locator(".diff-summary")).toHaveText("+2 −1");
+  await expect(page.locator(".diff-row.del")).toHaveCount(1);
+  await expect(page.locator(".diff-row.add")).toHaveCount(2);
+
+  await page.getByLabel("Ignore case").check();
+  await expect(page.locator(".diff-summary")).toHaveText("+1 −0");
+  await right.fill("a\nb\nc\n");
+  await expect(page.locator(".diff-summary")).toHaveText("No differences");
+});

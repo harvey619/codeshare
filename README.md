@@ -22,6 +22,9 @@ My first version sent the whole document on every keystroke, and the last write 
 
 [harveycodes.com/tools](https://harveycodes.com/tools) has small tools that run entirely in the browser. Each one is loaded only when opened, so code rooms never download them.
 
+- **Class picker & timer** (`/tools/picker`): random student with no repeats until everyone has had a go, plus a countdown with a beep. Both go fullscreen for the projector. The class list is saved in the browser.
+- **JSON formatter** (`/tools/json`): validate, format (2/4 spaces or tabs, optional sorted keys) or minify, with the line and column of any error.
+- **Diff checker** (`/tools/diff`): line diff with changed words highlighted, optionally ignoring whitespace or case.
 - **QR code** (`/tools/qr`): link or text to a QR code, download as PNG or SVG.
 - **Background remover** (`/tools/bg`): cuts the background out of a photo with [BiRefNet_lite](https://github.com/ZhengPeng7/BiRefNet) (MIT), using a [512×512 export](https://huggingface.co/studioludens/birefnet-lite-512) that fits in a browser. Runs on WebGPU, or on the CPU (WASM) if the GPU can't. The image never leaves the device; the model (~100 MB) is downloaded once and cached.
 
