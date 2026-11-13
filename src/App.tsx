@@ -2,11 +2,13 @@ import { useEffect, useState } from "react";
 import { resolveRoom } from "./room";
 import { getTheme, saveTheme, type Theme } from "./theme";
 import Editor from "./Editor";
+import NewRoomDialog from "./NewRoomDialog";
 
 export default function App() {
   const [room] = useState(resolveRoom);
   const [copied, setCopied] = useState(false);
   const [theme, setTheme] = useState<Theme>(getTheme);
+  const [showNew, setShowNew] = useState(false);  
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -31,7 +33,7 @@ export default function App() {
           <button className="btn primary" onClick={copyLink}>
             {copied ? "Copied ✓" : "Copy link"}
           </button>
-          <a className="btn" href="/">New room</a>
+          <button className="btn" onClick={() => setShowNew(true)}>New room</button>
           <button
             className="btn icon"
             onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
@@ -42,6 +44,7 @@ export default function App() {
         </div>
       </header>
       <Editor room={room} dark={theme === "dark"} />
+      {showNew && <NewRoomDialog onClose={() => setShowNew(false)} />}
     </div>
   );
 }

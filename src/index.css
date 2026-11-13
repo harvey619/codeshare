@@ -119,3 +119,25 @@ button.person:hover { text-decoration: underline; }
   color: var(--offline); background: none;
   border: 1px solid var(--offline); border-radius: 6px; padding: 2px 8px;
 }
+.btn.small { height: 28px; padding: 0 10px; font-size: 13px; }
+.backdrop {
+  position: fixed; inset: 0; z-index: 20;
+  display: flex; align-items: flex-start; justify-content: center;
+  padding-top: 15vh; background: rgb(0 0 0 / 0.5);
+}
+.dialog {
+  width: min(420px, calc(100vw - 32px));
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 20px; border-radius: 12px;
+  background: var(--surface); border: 1px solid var(--border);
+  box-shadow: 0 20px 50px rgb(0 0 0 / 0.3);
+}
+.dialog label { font-weight: 600; }
+.dialog input {
+  height: 40px; padding: 0 12px; font: inherit; font-size: 15px;
+  border: 1px solid var(--border); border-radius: 8px;
+  background: var(--bg); color: var(--text);
+}
+.dialog input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.hint { margin: 0; font-size: 12px; color: var(--muted); font-family: ui-monospace, monospace; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }

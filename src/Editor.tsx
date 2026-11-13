@@ -46,6 +46,7 @@ export default function Editor({ room, dark }: { room: string; dark: boolean }) 
   const [lang, setLang] = useState("JavaScript");
   const [status, setStatus] = useState<Status>("connecting");
   const [notice, setNotice] = useState<string | null>(null);
+  const [codeCopied, setCodeCopied] = useState(false);
   const [me, setMe] = useState(getLocalUser);
   const [others, setOthers] = useState<User[]>([]);
   const awareness = useRef<YProvider["awareness"] | null>(null);
@@ -168,6 +169,12 @@ export default function Editor({ room, dark }: { room: string; dark: boolean }) 
     view.current?.dispatch({ effects: theme.current.reconfigure(dark ? oneDark : []) });
   }, [dark]);
 
+  async function copyCode() {
+    await navigator.clipboard.writeText(view.current?.state.doc.toString() ?? "");
+    setCodeCopied(true);
+    setTimeout(() => setCodeCopied(false), 1500);
+  }  
+  
   function rename() {
     const name = prompt("Your name", me.name)?.trim().slice(0, 30);
     if (!name) return;
@@ -185,6 +192,7 @@ export default function Editor({ room, dark }: { room: string; dark: boolean }) 
             <option key={name}>{name}</option>
           ))}
         </select>
+                <button className="btn small" onClick={copyCode}>{codeCopied ? "Copied ✓" : "Copy code"}</button>
         <span className={`status ${status}`}>{status}</span>
         {notice && (
           <button className="notice" onClick={() => setNotice(null)} title="Dismiss">
