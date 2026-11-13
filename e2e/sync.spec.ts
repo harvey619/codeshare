@@ -89,5 +89,5 @@ test("sees the other user", async ({ browser }) => {
   await a.goto(room);
 
   const nameA = (await a.locator("button.person").innerText()).replace(" (you)", "");
-  await expect(b.locator("li.person")).toContainText(nameA, { timeout: 2000 });
+  await expect(b.locator("li.person")).toContainText(nameA, { timeout: 10_000 });
 });

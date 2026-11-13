@@ -36,3 +36,19 @@ test("rooms don't load tool code, and tools is never a room", async ({ page, req
   expect((await request.get("/parties/room/tools-qr")).status()).toBe(400);
   expect((await request.post("/api/rooms/tools/files", { data: "x" })).status()).toBe(400);
 });
+
+test("background remover page loads and rejects non-images", async ({ page }) => {
+  const models: string[] = [];
+  page.on("request", (r) => /huggingface\.co|jsdelivr/.test(r.url()) && models.push(r.url()));
+  await page.goto("/tools/bg");
+  await expect(page.getByRole("heading", { name: "Background remover" })).toBeVisible();
+
+  await page.locator('.bg input[type="file"]').setInputFiles({
+    name: "notes.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.from("hello"),
+  });
+  await expect(page.locator(".side-note.error")).toHaveText("That isn't an image.");
+  // Nothing heavy is fetched until a real image is given.
+  expect(models).toEqual([]);
+});

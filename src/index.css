@@ -198,3 +198,27 @@ button.person:hover { text-decoration: underline; }
   .qr { grid-template-columns: 1fr; }
   .qr-preview { max-width: 320px; width: 100%; margin: 0 auto; }
 }
+
+.bg { display: flex; flex-direction: column; gap: 16px; }
+.bg-drop {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 32px 16px; cursor: pointer; font: inherit; color: var(--text);
+  border: 2px dashed var(--border); border-radius: 12px; background: var(--surface);
+}
+.bg-drop span { color: var(--muted); font-size: 13px; }
+.bg-drop:hover, .bg-drop.over { border-color: var(--accent); }
+.bg-drop:disabled { opacity: 0.6; cursor: progress; }
+.bg-progress { display: flex; flex-direction: column; gap: 6px; }
+.bg-progress progress { width: 100%; accent-color: var(--accent); }
+.bg-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.bg-compare figure { margin: 0; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.bg-compare figcaption { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.bg-compare img { width: 100%; max-height: 60vh; object-fit: contain; border: 1px solid var(--border); border-radius: 8px; }
+.checker {
+  background: repeating-conic-gradient(#d0d3da 0 25%, #ffffff 0 50%) 0 0 / 20px 20px;
+}
+.bg-wait { aspect-ratio: 4 / 3; border: 1px solid var(--border); border-radius: 8px; opacity: 0.4; }
+.bg-download { align-self: flex-start; }
+@media (max-width: 720px) {
+  .bg-compare { grid-template-columns: 1fr; }
+}

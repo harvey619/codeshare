@@ -33,6 +33,7 @@
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.69.1",
+    "@huggingface/transformers": "4.3.2",
     "@playwright/test": "^1.65.0",
     "@types/node": "^24.19.2",
     "@types/qrcode": "^1.5.5",

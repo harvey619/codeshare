@@ -10,6 +10,12 @@ const TOOLS: Tool[] = [
     blurb: "Turn a link or text into a QR code. Download as PNG or SVG.",
     Component: lazy(() => import("./QrTool")),
   },
+  {
+    slug: "bg",
+    name: "Background remover",
+    blurb: "Cut the background out of a photo. Runs in your browser, nothing is uploaded.",
+    Component: lazy(() => import("./BgTool")),
+  },
 ];
 
 export default function ToolsPage() {
