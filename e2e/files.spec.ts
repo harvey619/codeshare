@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test";
 
 test("uploaded file appears for others and downloads intact", async ({ browser }) => {
+  test.setTimeout(60_000); // a 3.2 MB upload over a real connection is slow on production
   const room = `/e2e-${Date.now()}`;
   const a = await (await browser.newContext()).newPage();
   const b = await (await browser.newContext()).newPage();
