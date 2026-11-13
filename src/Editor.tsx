@@ -14,8 +14,8 @@ import { yCollab } from "y-codemirror.next";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { LIMITS } from "../shared/limits";
 import { getLocalUser, saveLocalUser, type User } from "./presence";
-import { compressImage, isAcceptedImage, uploadImage, type ImageMeta } from "./images";
-import ImageStrip from "./ImageStrip";
+import { compressImage, isAcceptedImage, uploadFile, uploadImage, type FileMeta, type ImageMeta } from "./images";
+import Sidebar from "./Sidebar";
 
 const LANGUAGES: Record<string, () => Extension> = {
   JavaScript: () => javascript(),
@@ -35,7 +35,7 @@ const CLOSE_REASONS: Record<number, string> = {
   1008: "You were sending too fast. Reconnecting…",
   1009: "That change was too large to send.",
   1013: "This room is full (50 people max).",
-  4000: "This room expired after 24h without edits.",
+  4000: "This room expired after 2 weeks without edits.",
 };
 
 export default function Editor({ room, dark }: { room: string; dark: boolean }) {
@@ -52,8 +52,10 @@ export default function Editor({ room, dark }: { room: string; dark: boolean }) 
   const awareness = useRef<YProvider["awareness"] | null>(null);
   const meta = useRef<Y.Map<string> | null>(null);
   const [images, setImages] = useState<ImageMeta[]>([]);
-  const [imageError, setImageError] = useState<string | null>(null);
+  const [files, setFiles] = useState<FileMeta[]>([]);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const uploadRef = useRef<(list: File[]) => void>(() => {});
 
   useEffect(() => {
     const doc = new Y.Doc();
@@ -116,35 +118,46 @@ export default function Editor({ room, dark }: { room: string; dark: boolean }) 
     const updateImages = () => setImages(yimages.toArray());
     yimages.observe(updateImages);
 
-    async function addImage(file: File) {
-      setImageError(null);
+    const yfiles = doc.getArray<FileMeta>("files");
+    const updateFiles = () => setFiles(yfiles.toArray());
+    yfiles.observe(updateFiles);
+
+    async function upload(list: File[]) {
+      if (list.length === 0) return;
+      setUploadError(null);
       setUploading(true);
       try {
-        const { blob, w, h } = await compressImage(file, LIMITS.imageBytes);
-        const id = await uploadImage(room, blob);
-        yimages.push([{ id, name: file.name || "pasted image", w, h, size: blob.size, addedAt: Date.now() }]);
+        for (const file of list) {
+          if (isAcceptedImage(file)) {
+            const { blob, w, h } = await compressImage(file, LIMITS.imageBytes);
+            const id = await uploadImage(room, blob);
+            yimages.push([{ id, name: file.name || "pasted image", w, h, size: blob.size, addedAt: Date.now() }]);
+          } else {
+            if (file.size > LIMITS.fileBytes) throw new Error(`${file.name} is over 10 MB`);
+            yfiles.push([await uploadFile(room, file)]);
+          }
+        }
       } catch (err) {
-        setImageError(err instanceof Error ? err.message : "Upload failed");
+        setUploadError(err instanceof Error ? err.message : "Upload failed");
       } finally {
         setUploading(false);
       }
     }
-
-    const imageFrom = (files: FileList | undefined) => [...(files ?? [])].find(isAcceptedImage);
+    uploadRef.current = upload;
 
     const onPaste = (e: ClipboardEvent) => {
-      const file = imageFrom(e.clipboardData?.files);
-      if (!file) return;
+      const list = [...(e.clipboardData?.files ?? [])];
+      if (list.length === 0) return;
       e.preventDefault();
       e.stopPropagation();
-      addImage(file);
+      upload(list);
     };
     const onDrop = (e: DragEvent) => {
-      const file = imageFrom(e.dataTransfer?.files);
-      if (!file) return;
+      const list = [...(e.dataTransfer?.files ?? [])];
+      if (list.length === 0) return;
       e.preventDefault();
       e.stopPropagation();
-      addImage(file);
+      upload(list);
     };
     const onDragOver = (e: DragEvent) => e.preventDefault();
 
@@ -155,6 +168,7 @@ export default function Editor({ room, dark }: { room: string; dark: boolean }) 
     return () => {
       ymeta.unobserve(applyLanguage);
       yimages.unobserve(updateImages);
+      yfiles.unobserve(updateFiles);
       document.removeEventListener("paste", onPaste, true);
       document.removeEventListener("drop", onDrop, true);
       document.removeEventListener("dragover", onDragOver);
@@ -216,7 +230,14 @@ export default function Editor({ room, dark }: { room: string; dark: boolean }) 
       </div>
       <div className="workspace">
         <div ref={host} className="editor" />
-        <ImageStrip room={room} images={images} error={imageError} busy={uploading} />
+        <Sidebar
+          room={room}
+          images={images}
+          files={files}
+          error={uploadError}
+          busy={uploading}
+          onPick={(list) => uploadRef.current(list)}
+        />
       </div>
     </>
   );

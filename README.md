@@ -4,13 +4,13 @@ Share a link, code together live. Open any URL like `/my-room` and you're in a r
 
 **Live:** https://harveycodes.com
 
-Built for small coding classes: live editing with named cursors, syntax highlighting, images pasted straight from the clipboard, and rooms that delete themselves 24h after the last edit. No accounts.
+Built for small coding classes: live editing with named cursors, syntax highlighting, images and files shared in a sidebar, and rooms that delete themselves 2 weeks after the last edit. No accounts.
 
 ## How it works
 
 - **Frontend:** Vite + React + TypeScript, CodeMirror 6
 - **Sync:** Yjs (a CRDT) over WebSockets, via `y-partyserver`
-- **Backend:** one Cloudflare Durable Object per room. It holds the live connections, and stores the document and images in its own SQLite. It hibernates when idle and deletes itself with an alarm after 24h
+- **Backend:** one Cloudflare Durable Object per room. It holds the live connections, and stores the document, images and files in its own SQLite. It hibernates when idle and deletes itself with an alarm 2 weeks after the last edit
 - **Cost:** runs entirely on the Cloudflare Workers free plan
 - **Tests:** Vitest (unit) and Playwright (two-browser sync tests)
 
@@ -30,6 +30,6 @@ npm run deploy     # deploy to Cloudflare
 
 ## Limits
 
-200k characters per doc, 20 images per room (≤1.5 MB each, PNG/JPEG/WebP/GIF), 50 people per room, and message rate limits. Rooms expire 24h after the last edit.
+200k characters per doc, 20 images per room (≤1.5 MB each, PNG/JPEG/WebP/GIF), files up to 10 MB each (25 MB per room, always downloaded, never opened inline), 50 people per room, and message rate limits. Rooms expire 2 weeks after the last edit.
 
 Design notes: [docs/design.md](docs/design.md)

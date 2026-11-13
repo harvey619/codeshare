@@ -45,3 +45,21 @@ export async function uploadImage(room: string, blob: Blob): Promise<string> {
   if (!res.ok) throw new Error(data.error ?? "Upload failed");
   return data.id;
 }
+export type FileMeta = { id: string; name: string; size: number; addedAt: number };
+
+export async function uploadFile(room: string, file: File): Promise<FileMeta> {
+  const res = await fetch(`/api/rooms/${room}/files`, {
+    method: "POST",
+    body: file,
+    headers: { "X-File-Name": encodeURIComponent(file.name || "file") },
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error ?? "Upload failed");
+  return { id: data.id, name: data.name, size: data.size, addedAt: Date.now() };
+}
+
+export function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}

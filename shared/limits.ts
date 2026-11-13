@@ -2,7 +2,8 @@ export const LIMITS = {
   docChars: 200_000, docBytesHard: 1_000_000, msgBytes: 262_144,
   msgsPerSec: 30, msgBurst: 60, connsPerRoom: 50,
   imageBytes: 1_500_000, imagesPerRoom: 20, uploadsPerMin: 10,
-  roomTtlMs: 86_400_000,
+  roomTtlMs: 14 * 24 * 60 * 60 * 1000,
+  fileBytes: 10_000_000, roomFileBytes: 25_000_000, fileChunkBytes: 1_500_000,
 } as const;
 
 const MAX_ROOM_LEN = 40;
