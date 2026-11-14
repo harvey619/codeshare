@@ -37,6 +37,15 @@ export default function App() {
       </div>
     );
   }
+  const viewToken = location.pathname.match(/^\/view\/([A-Za-z0-9_-]+)\/?$/)?.[1];
+  if (viewToken) {
+    return (
+      <div className="app">
+        <Header label="view only" actions={<><a className="btn" href="/tools">Tools</a>{toggle}</>} />
+        <Editor room={null} viewToken={viewToken} dark={theme === "dark"} />
+      </div>
+    );
+  }
   return <RoomApp dark={theme === "dark"} toggle={toggle} />;
 }
 
@@ -56,6 +65,21 @@ function Header({ label, actions }: { label: string; actions: ReactNode }) {
 function RoomApp({ dark, toggle }: { dark: boolean; toggle: ReactNode }) {
   const [room] = useState(resolveRoom);
   const [copied, setCopied] = useState(false);
+  const [viewCopied, setViewCopied] = useState<"" | "ok" | "fail">("");
+
+  // A link that lets people watch but not edit. The token hides the room name.
+  async function copyViewLink() {
+    try {
+      const res = await fetch(`/api/rooms/${room}/view-link`);
+      if (!res.ok) throw new Error();
+      const { token } = await res.json();
+      await navigator.clipboard.writeText(`${location.origin}/view/${token}`);
+      setViewCopied("ok");
+    } catch {
+      setViewCopied("fail");
+    }
+    setTimeout(() => setViewCopied(""), 1500);
+  }
   const [showNew, setShowNew] = useState(false);
 
   async function copyLink() {
@@ -72,6 +96,9 @@ function RoomApp({ dark, toggle }: { dark: boolean; toggle: ReactNode }) {
           <>
             <button className="btn primary" onClick={copyLink}>
               {copied ? "Copied ✓" : "Copy link"}
+            </button>
+            <button className="btn" onClick={copyViewLink} title="Copy a link that lets people watch without editing">
+              {viewCopied === "ok" ? "Copied ✓" : viewCopied === "fail" ? "Failed" : "View-only link"}
             </button>
             <button className="btn" onClick={() => setShowNew(true)}>New room</button>
             <a className="btn" href="/tools">Tools</a>

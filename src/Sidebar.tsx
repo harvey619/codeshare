@@ -2,7 +2,9 @@ import { useRef, useState } from "react";
 import { formatSize, type FileMeta, type ImageMeta } from "./images";
 
 type Props = {
-  room: string;
+  /** API base: /api/rooms/<room>, or /api/view/<token> for view-only links. */
+  base: string;
+  readOnly: boolean;
   images: ImageMeta[];
   files: FileMeta[];
   error: string | null;
@@ -10,17 +12,19 @@ type Props = {
   onPick: (list: File[]) => void;
 };
 
-export default function Sidebar({ room, images, files, error, busy, onPick }: Props) {
+export default function Sidebar({ base, readOnly, images, files, error, busy, onPick }: Props) {
   const [open, setOpen] = useState<ImageMeta | null>(null);
   const input = useRef<HTMLInputElement>(null);
-  const src = (img: ImageMeta) => `/api/rooms/${room}/images/${img.id}`;
+  const src = (img: ImageMeta) => `${base}/images/${img.id}`;
   const empty = images.length === 0 && files.length === 0;
 
   return (
     <aside className="sidebar">
-      <button className="btn small" onClick={() => input.current?.click()} disabled={busy}>
-        + Add files
-      </button>
+      {!readOnly && (
+        <button className="btn small" onClick={() => input.current?.click()} disabled={busy}>
+          + Add files
+        </button>
+      )}
       <input
         ref={input}
         type="file"
@@ -33,7 +37,7 @@ export default function Sidebar({ room, images, files, error, busy, onPick }: Pr
       />
       {busy && <p className="side-note">Uploading…</p>}
       {error && <p className="side-note error">{error}</p>}
-      {empty && !busy && <p className="side-note">Paste, drop or add images and files</p>}
+      {empty && !busy && <p className="side-note">{readOnly ? "No images or files yet" : "Paste, drop or add images and files"}</p>}
 
       {images.length > 0 && (
         <section>
@@ -60,7 +64,7 @@ export default function Sidebar({ room, images, files, error, busy, onPick }: Pr
           <ul className="files">
             {files.map((f) => (
               <li key={f.id}>
-                <a className="file" href={`/api/rooms/${room}/files/${f.id}`} download={f.name} title={f.name}>
+                <a className="file" href={`${base}/files/${f.id}`} download={f.name} title={f.name}>
                   <span className="file-name">{f.name}</span>
                   <span className="file-size">{formatSize(f.size)}</span>
                 </a>

@@ -4,6 +4,7 @@ export const LIMITS = {
   imageBytes: 1_500_000, imagesPerRoom: 20, uploadsPerMin: 10,
   roomTtlMs: 14 * 24 * 60 * 60 * 1000,
   fileBytes: 10_000_000, roomFileBytes: 25_000_000, fileChunkBytes: 1_500_000,
+  historyEveryMs: 5 * 60_000, historyKeep: 30, explainChars: 12_000,
 } as const;
 
 const MAX_ROOM_LEN = 40;
@@ -18,9 +19,10 @@ export function normalizeRoomName(raw: string): string | null {
   return name;
 }
 
-// "/tools/..." is the tools area, never a room. "/tools/qr" would normalise to "tools-qr".
+// "/tools/..." and "/view/..." are app pages, never rooms ("/tools/qr" normalises to "tools-qr").
+const RESERVED = ["tools", "view"];
 export function isReservedRoom(name: string): boolean {
-  return name === "tools" || name.startsWith("tools-");
+  return RESERVED.some((r) => name === r || name.startsWith(r + "-"));
 }
 
 const ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789";

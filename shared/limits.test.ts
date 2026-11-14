@@ -18,6 +18,8 @@ describe("normalizeRoomName", () => {
     expect(normalizeRoomName("tools")).toBeNull();
     expect(normalizeRoomName("tools/qr")).toBeNull();
     expect(normalizeRoomName("toolshed")).toBe("toolshed");
+    expect(normalizeRoomName("view/abc")).toBeNull();
+    expect(normalizeRoomName("viewer")).toBe("viewer");
   });
 
   it("returns null when nothing usable is left", () => {
@@ -43,5 +45,37 @@ describe("TokenBucket", () => {
     time += 1000;
     for (let i = 0; i < 30; i++) expect(bucket.take()).toBe(true);
     expect(bucket.take()).toBe(false);
+  });
+});
+import { cleanFileName, dedupeTabs, languageOf, legacyMainName, textKey, withLanguage } from "./files";
+
+describe("files", () => {
+  it("maps extensions to languages", () => {
+    expect(languageOf("main.py")).toBe("Python");
+    expect(languageOf("INDEX.HTML")).toBe("HTML");
+    expect(languageOf("notes")).toBe("Plain text");
+  });
+
+  it("swaps the extension for a language", () => {
+    expect(withLanguage("main.js", "Python")).toBe("main.py");
+    expect(withLanguage("README", "CSS")).toBe("README.css");
+  });
+
+  it("names the first file of old rooms from their language", () => {
+    expect(legacyMainName(undefined)).toBe("main.js");
+    expect(legacyMainName("Python")).toBe("main.py");
+    expect(legacyMainName("HTML")).toBe("index.html");
+  });
+
+  it("cleans file names", () => {
+    expect(cleanFileName(" my file!.py ")).toBe("my-file-.py");
+    expect(cleanFileName("../../etc")).toBe("etc");
+    expect(cleanFileName("***")).toBeNull();
+  });
+
+  it("keeps the first file in the legacy text and dedupes tabs", () => {
+    expect(textKey("main")).toBe("code");
+    expect(textKey("ab12")).toBe("file:ab12");
+    expect(dedupeTabs([{ id: "main", name: "a" }, { id: "main", name: "b" }, { id: "x", name: "c" }]).map((t) => t.name)).toEqual(["a", "c"]);
   });
 });

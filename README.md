@@ -18,6 +18,18 @@ Built for small coding classes: live editing with named cursors, syntax highligh
 
 My first version sent the whole document on every keystroke, and the last write won. When two people typed at once, their messages crossed, each screen overwrote the other's keystroke, and they ended up with different text. A CRDT sends small operations anchored to stable character IDs instead, so edits merge in any order and everyone converges. The same Playwright test fails on the first version and passes on the second. Details in [docs/notes/lww.md](docs/notes/lww.md).
 
+## In a room
+
+- **Several files** per room as tabs (up to 10). The language follows the file extension.
+- **Run**: JavaScript and Python (Pyodide) run in a sandboxed frame in the browser, with a Stop button and an input box for `input()` / `prompt()`. HTML files open a live preview that pulls in the room's CSS and JS files.
+- **History**: the room saves a copy every 5 minutes (last 30). Anyone can preview and restore one.
+- **View-only links**: an encrypted token that lets people watch live without being able to edit, and without revealing the editable link.
+- **Follow**: click a name to keep your screen on their file and scroll position. **Raise hand** shows a ✋ by your name.
+- **Explain**: an AI explanation of the selection or file (Workers AI, rate-limited per room).
+- Text size buttons, download a file, copy code.
+
+Setup for view-only links: `npx wrangler secret put VIEW_KEY` with a random base64 value (and the same in `.dev.vars` for local dev).
+
 ## Tools
 
 [harveycodes.com/tools](https://harveycodes.com/tools) has small tools that run entirely in the browser. Each one is loaded only when opened, so code rooms never download them.

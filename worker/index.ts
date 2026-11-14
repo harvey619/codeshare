@@ -3,6 +3,14 @@ import { YServer } from "y-partyserver";
 import * as Y from "yjs";
 import { LIMITS, TokenBucket, isReservedRoom, normalizeRoomName } from "../shared/limits";
 import { sniffImageType } from "./images";
+import { readViewToken, makeViewToken } from "./viewToken";
+import { MAIN_ID, dedupeTabs, textKey, type FileTab } from "../shared/files";
+
+const EXPLAIN_MODEL = "@cf/google/gemma-4-26b-a4b-it";
+const EXPLAIN_PROMPT = `You are a patient programming teacher helping beginners in a small coding class.
+Explain what the code does in plain English: first one or two sentences on its overall purpose,
+then a short step-by-step walkthrough. If you spot a bug or a likely mistake, mention it briefly at the end.
+Use short paragraphs, bullet points and \`inline code\`. Keep it under 250 words. Do not rewrite the whole program.`;
 
 const json = (body: unknown, status: number) => Response.json(body, { status });
 
@@ -11,6 +19,8 @@ export class Room extends YServer<Env> {
   static callbackOptions = { debounceWait: 5000, debounceMaxWait: 15000 };
 
   uploads = new TokenBucket(LIMITS.uploadsPerMin / 60, LIMITS.uploadsPerMin);
+  explains = new TokenBucket(1 / 60, 5); // 5 at once, then one a minute per room
+  checkpoints = new TokenBucket(6 / 60, 6);
   buckets = new Map<string, TokenBucket>();
 
   onConnect(conn: Connection, ctx: ConnectionContext) {
@@ -18,6 +28,8 @@ export class Room extends YServer<Env> {
       conn.close(1013, "room-full");
       return;
     }
+    // Set by the Worker for /view/ links only. Survives hibernation (connection state).
+    if (ctx.request.headers.get("x-codeshare-view") === "1") conn.setState({ readOnly: true });
     return super.onConnect(conn, ctx);
   }
 
@@ -39,6 +51,10 @@ export class Room extends YServer<Env> {
     return super.onMessage(conn, message);
   }
 
+  isReadOnly(conn: Connection) {
+    return (conn.state as { readOnly?: boolean } | null)?.readOnly === true;
+  }
+
   onClose(conn: Connection, code: number, reason: string, wasClean: boolean) {
     this.buckets.delete(conn.id);
     return super.onClose(conn, code, reason, wasClean);
@@ -49,14 +65,19 @@ export class Room extends YServer<Env> {
     await this.ctx.storage.deleteAll();
     this.createTables();
 
+    // Empty the in-memory doc too, or the old content would sync straight back.
     const doc = this.document;
     doc.transact(() => {
-      const text = doc.getText("code");
-      text.delete(0, text.length);
-      const images = doc.getArray("images");
-      images.delete(0, images.length);
-      const files = doc.getArray("files");
-      files.delete(0, files.length);
+      for (const key of [...doc.share.keys()]) {
+        if (key === "code" || key.startsWith("file:")) {
+          const text = doc.getText(key);
+          text.delete(0, text.length);
+        }
+      }
+      for (const key of ["images", "files", "tabs"]) {
+        const arr = doc.getArray(key);
+        arr.delete(0, arr.length);
+      }
       const meta = doc.getMap("meta");
       for (const key of [...meta.keys()]) meta.delete(key);
     });
@@ -74,6 +95,9 @@ export class Room extends YServer<Env> {
     );
     this.ctx.storage.sql.exec(
       "CREATE TABLE IF NOT EXISTS file_chunks (file_id TEXT, idx INTEGER, bytes BLOB, PRIMARY KEY (file_id, idx))",
+    );
+    this.ctx.storage.sql.exec(
+      "CREATE TABLE IF NOT EXISTS history (id INTEGER PRIMARY KEY AUTOINCREMENT, created_at INTEGER, hash TEXT, summary TEXT, state BLOB)",
     );
   }
 
@@ -99,11 +123,44 @@ export class Room extends YServer<Env> {
       state,
     );
     await this.ctx.storage.setAlarm(Date.now() + LIMITS.roomTtlMs);
+    await this.checkpoint(state, false);
+  }
+
+  /** Files and their sizes, for the history list. */
+  summary() {
+    const doc = this.document;
+    let tabs = dedupeTabs(doc.getArray<FileTab>("tabs").toArray());
+    if (tabs.length === 0) tabs = [{ id: MAIN_ID, name: "main" }];
+    return tabs.map((t) => ({ name: t.name, chars: doc.getText(textKey(t.id)).length }));
+  }
+
+  /**
+   * Save a restorable copy of the room. Automatic ones are at most every 5 minutes;
+   * `force` (used just before a restore) always saves. Identical states are skipped.
+   */
+  async checkpoint(state: Uint8Array, force: boolean) {
+    const sql = this.ctx.storage.sql;
+    const last = sql.exec("SELECT created_at, hash FROM history ORDER BY id DESC LIMIT 1").toArray()[0];
+    if (!force && last && Date.now() - (last.created_at as number) < LIMITS.historyEveryMs) return null;
+    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", state));
+    const hash = [...digest].map((b) => b.toString(16).padStart(2, "0")).join("");
+    if (last && last.hash === hash) return null;
+    sql.exec(
+      "INSERT INTO history (created_at, hash, summary, state) VALUES (?, ?, ?, ?)",
+      Date.now(), hash, JSON.stringify(this.summary()), state,
+    );
+    sql.exec(
+      "DELETE FROM history WHERE id NOT IN (SELECT id FROM history ORDER BY id DESC LIMIT ?)",
+      LIMITS.historyKeep,
+    );
+    return sql.exec("SELECT last_insert_rowid() AS id").one().id as number;
   }
   async onRequest(request: Request) {
-    const [, kind, id] = new URL(request.url).pathname.match(/\/(images|files)(?:\/([0-9a-f-]+))?$/) ?? [];
+    const [, kind, id] = new URL(request.url).pathname.match(/\/(images|files|history|explain)(?:\/([0-9a-f-]+))?$/) ?? [];
     if (kind === "images") return this.handleImage(request, id);
     if (kind === "files") return this.handleFile(request, id);
+    if (kind === "history") return this.handleHistory(request, id);
+    if (kind === "explain" && !id) return this.handleExplain(request);
     return json({ error: "not found" }, 404);
   }
 
@@ -145,6 +202,65 @@ export class Room extends YServer<Env> {
     }
 
     return json({ error: "method not allowed" }, 405);
+  }
+
+  async handleHistory(request: Request, id: string | undefined) {
+    const sql = this.ctx.storage.sql;
+    if (request.method === "GET" && !id) {
+      const rows = sql.exec("SELECT id, created_at, summary FROM history ORDER BY id DESC").toArray();
+      return json(rows.map((r) => ({ id: r.id, at: r.created_at, files: JSON.parse(r.summary as string) })), 200);
+    }
+    if (request.method === "GET" && id) {
+      const row = sql.exec("SELECT state FROM history WHERE id = ?", Number(id)).toArray()[0];
+      if (!row) return json({ error: "not found" }, 404);
+      return new Response(row.state as ArrayBuffer, {
+        headers: { "Content-Type": "application/octet-stream", "Cache-Control": "private, max-age=86400, immutable" },
+      });
+    }
+    if (request.method === "POST" && !id) {
+      // Save the current state now, so a restore can itself be undone.
+      if (!this.checkpoints.take()) return json({ error: "Too many saves, wait a minute" }, 429);
+      const saved = await this.checkpoint(Y.encodeStateAsUpdate(this.document), true);
+      return json({ id: saved }, 201);
+    }
+    return json({ error: "method not allowed" }, 405);
+  }
+
+  async handleExplain(request: Request) {
+    if (request.method !== "POST") return json({ error: "method not allowed" }, 405);
+    let body: { code?: unknown; language?: unknown; file?: unknown };
+    try {
+      body = await request.json();
+    } catch {
+      return json({ error: "Expected JSON" }, 400);
+    }
+    const code = typeof body.code === "string" ? body.code : "";
+    if (!code.trim()) return json({ error: "There's no code to explain" }, 400);
+    if (code.length > LIMITS.explainChars) return json({ error: "That's too much code, select a smaller part" }, 413);
+    if (!this.explains.take()) return json({ error: "Explain is busy for this room, try again in a minute" }, 429);
+    const language = typeof body.language === "string" ? body.language.slice(0, 20) : "code";
+    const file = typeof body.file === "string" ? body.file.slice(0, 40) : "";
+
+    let upstream: ReadableStream<Uint8Array>;
+    try {
+      upstream = (await this.env.AI.run(EXPLAIN_MODEL as Parameters<Ai["run"]>[0], {
+        messages: [
+          { role: "system", content: EXPLAIN_PROMPT },
+          { role: "user", content: `Explain this ${language}${file ? ` from ${file}` : ""}:\n\n\`\`\`\n${code}\n\`\`\`` },
+        ],
+        stream: true,
+        max_tokens: 1200,
+        // A plain explanation doesn't need the model's hidden "thinking": it's slower and
+        // uses up the token budget before the answer is finished.
+        chat_template_kwargs: { enable_thinking: false },
+      } as never)) as unknown as ReadableStream<Uint8Array>;
+    } catch (err) {
+      console.error("explain failed", err);
+      return json({ error: "The AI is unavailable right now (it may have hit today's free limit)" }, 503);
+    }
+    return new Response(upstream.pipeThrough(sseToText()), {
+      headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" },
+    });
   }
 
   async handleFile(request: Request, id: string | undefined) {
@@ -205,6 +321,36 @@ export class Room extends YServer<Env> {
   }
 }
 
+// Workers AI streams Server-Sent Events. Pass on only the answer text (no reasoning, no framing).
+function sseToText() {
+  const decoder = new TextDecoder();
+  const encoder = new TextEncoder();
+  let buffer = "";
+  const handle = (line: string, out: TransformStreamDefaultController<Uint8Array>) => {
+    if (!line.startsWith("data:")) return;
+    const data = line.slice(5).trim();
+    if (!data || data === "[DONE]") return;
+    try {
+      const msg = JSON.parse(data);
+      const text: unknown = msg.response ?? msg.choices?.[0]?.delta?.content;
+      if (typeof text === "string" && text) out.enqueue(encoder.encode(text));
+    } catch {
+      // partial or non-JSON line: skip
+    }
+  };
+  return new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, out) {
+      buffer += decoder.decode(chunk, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) handle(line, out);
+    },
+    flush(out) {
+      handle(buffer, out);
+    },
+  });
+}
+
 // Read and discard the body before replying. Answering mid-upload makes some
 // clients (and the local dev proxy) see a dropped connection instead of the 413.
 async function tooLarge(request: Request, error: string) {
@@ -224,28 +370,64 @@ function sanitizeFileName(header: string | null): string {
   return name || "file";
 }
 
-const UPLOAD_ROUTE = /^\/api\/rooms\/([^/]+)\/(?:images|files)(?:\/[0-9a-f-]+)?$/;
+const ROOM_API = /^\/api\/rooms\/([^/]+)\/(?:images|files|history|explain)(?:\/[0-9a-f-]+)?$/;
+const VIEW_LINK = /^\/api\/rooms\/([^/]+)\/view-link$/;
+const VIEW_SOCKET = /^\/parties\/view\/([A-Za-z0-9_-]+)$/;
+const VIEW_API = /^\/api\/view\/([A-Za-z0-9_-]+)\/((?:images|files)\/[0-9a-f-]+)$/;
+
+function roomFromPath(segment: string) {
+  try {
+    return normalizeRoomName(decodeURIComponent(segment));
+  } catch {
+    return null; // malformed percent-encoding
+  }
+}
+
+/** Forward a request to a room's Durable Object under a rewritten path, optionally read-only. */
+async function toRoom(env: Env, room: string, request: Request, path: string, viewOnly: boolean) {
+  const url = new URL(request.url);
+  url.pathname = path;
+  const forwarded = new Request(url, request);
+  forwarded.headers.delete("x-codeshare-view");
+  if (viewOnly) forwarded.headers.set("x-codeshare-view", "1");
+  const stub = await getServerByName(env.Room, room);
+  return stub.fetch(forwarded);
+}
 const ROOM_SOCKET = /^\/parties\/room\/[a-z0-9-]{1,40}$/;
 
 export default {
   async fetch(request, env) {
     const path = new URL(request.url).pathname;
 
+    // View-only links: the token decrypts to the room; the browser never learns its name.
+    const viewSocket = path.match(VIEW_SOCKET);
+    const viewApi = path.match(VIEW_API);
+    if (viewSocket || viewApi) {
+      if (!env.VIEW_KEY) return json({ error: "view links are not set up" }, 503);
+      const room = await readViewToken(env.VIEW_KEY, (viewSocket ?? viewApi)![1]);
+      if (!room || !normalizeRoomName(room)) return json({ error: "bad link" }, 404);
+      if (viewSocket) return toRoom(env, room, request, `/parties/room/${room}`, true);
+      if (request.method !== "GET") return json({ error: "view only" }, 405);
+      return toRoom(env, room, request, `/api/rooms/${room}/${viewApi![2]}`, true);
+    }
+
     if (path.startsWith("/parties/") && (!ROOM_SOCKET.test(path) || isReservedRoom(path.split("/")[3]))) {
       return json({ error: "bad room" }, 400);
     }
 
-    const match = path.match(UPLOAD_ROUTE);
-    if (match) {
-      let room: string | null = null;
-      try {
-        room = normalizeRoomName(decodeURIComponent(match[1]));
-      } catch {
-        // malformed percent-encoding
-      }
+    const viewLink = path.match(VIEW_LINK);
+    if (viewLink) {
+      const room = roomFromPath(viewLink[1]);
       if (!room) return json({ error: "bad room" }, 400);
-      const stub = await getServerByName(env.Room, room);
-      return stub.fetch(request);
+      if (!env.VIEW_KEY) return json({ error: "view links are not set up" }, 503);
+      return json({ token: await makeViewToken(env.VIEW_KEY, room) }, 200);
+    }
+
+    const match = path.match(ROOM_API);
+    if (match) {
+      const room = roomFromPath(match[1]);
+      if (!room) return json({ error: "bad room" }, 400);
+      return toRoom(env, room, request, path, false);
     }
     return (
       (await routePartykitRequest(request, env)) ??
