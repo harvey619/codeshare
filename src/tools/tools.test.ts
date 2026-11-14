@@ -76,3 +76,74 @@ describe("diff", () => {
     expect(diffRows("a  b\n", "a b\n", { ignoreWhitespace: true, ignoreCase: false }).added).toBe(0);
   });
 });
+
+import {
+  base64Decode, base64Encode, contrast, decodeJwt, formatBytes, fromHsl, htmlDecode, htmlEncode,
+  parseHex, parsePageRanges, parseTimestamp, randomString, shades, toHex, toHsl,
+} from "./lib";
+
+describe("colour", () => {
+  it("parses and prints hex", () => {
+    expect(parseHex("#7c5cff")).toEqual({ r: 124, g: 92, b: 255 });
+    expect(parseHex("fff")).toEqual({ r: 255, g: 255, b: 255 });
+    expect(parseHex("nope")).toBeNull();
+    expect(toHex({ r: 124, g: 92, b: 255 })).toBe("#7c5cff");
+  });
+  it("converts to and from HSL", () => {
+    expect(toHsl({ r: 255, g: 0, b: 0 })).toEqual({ h: 0, s: 100, l: 50 });
+    expect(fromHsl(120, 100, 50)).toEqual({ r: 0, g: 255, b: 0 });
+    expect(toHex(fromHsl(0, 0, 100))).toBe("#ffffff");
+  });
+  it("computes WCAG contrast", () => {
+    expect(contrast({ r: 0, g: 0, b: 0 }, { r: 255, g: 255, b: 255 })).toBeCloseTo(21, 5);
+    expect(contrast({ r: 119, g: 119, b: 119 }, { r: 255, g: 255, b: 255 })).toBeCloseTo(4.48, 1);
+  });
+  it("makes nine shades, light to dark", () => {
+    const s = shades({ r: 124, g: 92, b: 255 });
+    expect(s).toHaveLength(9);
+    expect(toHsl(parseHex(s[0])!).l).toBeGreaterThan(toHsl(parseHex(s[8])!).l);
+  });
+});
+
+describe("encode", () => {
+  it("round-trips unicode through base64", () => {
+    expect(base64Decode(base64Encode("héllo 👋"))).toBe("héllo 👋");
+    expect(base64Decode("aGk")).toBe("hi"); // missing padding
+    expect(() => base64Decode("!!!")).toThrow();
+  });
+  it("encodes and decodes HTML entities", () => {
+    expect(htmlEncode(`<a href="x">Tom & 'Jerry'</a>`)).toBe("&lt;a href=&quot;x&quot;&gt;Tom &amp; &#39;Jerry&#39;&lt;/a&gt;");
+    expect(htmlDecode("&lt;b&gt; &amp; &#233; &#x1F600;")).toBe("<b> & é 😀");
+  });
+  it("decodes a JWT", () => {
+    const jwt = `${base64Encode('{"alg":"HS256"}')}.${base64Encode('{"sub":"42","exp":1}')}.sig`;
+    expect(decodeJwt(jwt)).toEqual({ header: { alg: "HS256" }, payload: { sub: "42", exp: 1 } });
+    expect(() => decodeJwt("abc")).toThrow();
+  });
+});
+
+describe("generators, pdf ranges, time, sizes", () => {
+  it("builds random strings from the alphabet only", () => {
+    const s = randomString(200, "ab");
+    expect(s).toMatch(/^[ab]{200}$/);
+    expect(s).toContain("a");
+    expect(s).toContain("b");
+  });
+  it("parses page ranges", () => {
+    expect(parsePageRanges("1-3, 5, 8-", 10)).toEqual([0, 1, 2, 4, 7, 8, 9]);
+    expect(parsePageRanges("-2", 5)).toEqual([0, 1]);
+    expect(() => parsePageRanges("4-12", 10)).toThrow();
+    expect(() => parsePageRanges("x", 10)).toThrow();
+    expect(() => parsePageRanges(" ", 10)).toThrow();
+  });
+  it("reads timestamps in seconds or milliseconds", () => {
+    expect(parseTimestamp("1700000000")!.toISOString()).toBe("2023-11-14T22:13:20.000Z");
+    expect(parseTimestamp("1700000000000")!.toISOString()).toBe("2023-11-14T22:13:20.000Z");
+    expect(parseTimestamp("soon")).toBeNull();
+  });
+  it("formats byte sizes", () => {
+    expect(formatBytes(512)).toBe("512 B");
+    expect(formatBytes(2048)).toBe("2.0 KB");
+    expect(formatBytes(5 * 1024 * 1024)).toBe("5.0 MB");
+  });
+});

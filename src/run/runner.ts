@@ -50,7 +50,15 @@ onmessage = async (e) => {
   try {
     if (!py) {
       postMessage({ type: "status", text: "Loading Python (about 10 MB, only the first time)…" });
-      py = await loadPyodide({ indexURL: "${PYODIDE}" });
+      // The download can fail on a flaky connection: try up to three times.
+      for (let attempt = 1; ; attempt++) {
+        try { py = await loadPyodide({ indexURL: "${PYODIDE}" }); break; }
+        catch (err) {
+          if (attempt === 3) throw new Error("Couldn't download Python. Check your connection and press Run again.");
+          postMessage({ type: "status", text: "Download hiccup, trying again…" });
+          await new Promise((r) => setTimeout(r, 1500 * attempt));
+        }
+      }
       postMessage({ type: "status", text: "Running…" });
     }
     py.setStdout(out("log"));

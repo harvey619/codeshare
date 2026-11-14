@@ -85,18 +85,22 @@ test("run HTML with the room's CSS and JS files", async ({ page }) => {
   await expect(page.locator(".out")).toHaveText(["ran"]);
 });
 
-test("run Python", async ({ page }) => {
-  test.setTimeout(120_000); // first run downloads Pyodide
-  await openRoom(page, newRoom());
-  await page.getByLabel("Language").selectOption("Python");
-  await type(page, 'name = input()\nprint("hi", name)\nprint(sum(range(5)))\n1/0');
-  await page.getByRole("button", { name: /Run/ }).click();
-  await page.getByLabel("Program input").fill("Ben");
-  await expect(page.getByRole("button", { name: /Run/ })).toBeVisible({ timeout: 90_000 });
-  await page.getByRole("button", { name: /Run/ }).click();
-  await expect(page.locator(".out").first()).toHaveText("hi Ben", { timeout: 90_000 });
-  await expect(page.locator(".out").nth(1)).toHaveText("10");
-  await expect(page.locator(".out.error")).toContainText("ZeroDivisionError");
+// Pyodide comes from a CDN, so a slow network can stall this: allow retries.
+test.describe("python", () => {
+  test.describe.configure({ retries: 2 });
+  test("run Python", async ({ page }) => {
+    test.setTimeout(240_000); // first run downloads Pyodide (about 10 MB)
+    await openRoom(page, newRoom());
+    await page.getByLabel("Language").selectOption("Python");
+    await type(page, 'name = input()\nprint("hi", name)\nprint(sum(range(5)))\n1/0');
+    await page.getByRole("button", { name: /Run/ }).click();
+    await page.getByLabel("Program input").fill("Ben");
+    await expect(page.getByRole("button", { name: /Run/ })).toBeVisible({ timeout: 150_000 });
+    await page.getByRole("button", { name: /Run/ }).click();
+    await expect(page.locator(".out").first()).toHaveText("hi Ben", { timeout: 150_000 });
+    await expect(page.locator(".out").nth(1)).toHaveText("10");
+    await expect(page.locator(".out.error")).toContainText("ZeroDivisionError");
+  });
 });
 
 test("history: restore brings back wiped code", async ({ page, request }) => {

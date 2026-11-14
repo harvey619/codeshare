@@ -32,13 +32,15 @@ Setup for view-only links: `npx wrangler secret put VIEW_KEY` with a random base
 
 ## Tools
 
-[harveycodes.com/tools](https://harveycodes.com/tools) has small tools that run entirely in the browser. Each one is loaded only when opened, so code rooms never download them.
+[harveycodes.com/tools](https://harveycodes.com/tools) has 16 small tools with search, categories and favourites (remembered in the browser, no accounts). Every tool runs entirely in the browser and is its own lazy-loaded chunk, so code rooms never download them.
 
-- **Class picker & timer** (`/tools/picker`): random student with no repeats until everyone has had a go, plus a countdown with a beep. Both go fullscreen for the projector. The class list is saved in the browser.
-- **JSON formatter** (`/tools/json`): validate, format (2/4 spaces or tabs, optional sorted keys) or minify, with the line and column of any error.
-- **Diff checker** (`/tools/diff`): line diff with changed words highlighted, optionally ignoring whitespace or case.
-- **QR code** (`/tools/qr`): link or text to a QR code, download as PNG or SVG.
-- **Background remover** (`/tools/bg`): cuts the background out of a photo with [BiRefNet_lite](https://github.com/ZhengPeng7/BiRefNet) (MIT), using a [512×512 export](https://huggingface.co/studioludens/birefnet-lite-512) that fits in a browser. Runs on WebGPU, or on the CPU (WASM) if the GPU can't. The image never leaves the device; the model (~100 MB) is downloaded once and cached.
+| Group | Tools |
+|---|---|
+| Teach | Whiteboard ([Excalidraw](https://github.com/excalidraw/excalidraw), MIT), Python playground (Pyodide), class picker & timer, QR code |
+| Code | JSON formatter, diff checker, regex tester, encode & decode (Base64 / URL / HTML / JWT), IDs, passwords & hashes, timestamp converter, Markdown to PDF |
+| Image | Compressor & converter (PNG / JPEG / WebP), resize & crop, background remover ([BiRefNet_lite](https://github.com/ZhengPeng7/BiRefNet), MIT, [512×512 export](https://huggingface.co/studioludens/birefnet-lite-512)) |
+| Colour | Picker, HEX/RGB/HSL, palette, WCAG contrast checker |
+| Files | PDF merge, extract pages, images to PDF ([pdf-lib](https://github.com/Hopding/pdf-lib), MIT) |
 
 ## Run locally
 
