@@ -4,6 +4,9 @@ import * as Y from "yjs";
 import { LIMITS, TokenBucket, isReservedRoom, normalizeRoomName } from "../shared/limits";
 import { sniffImageType } from "./images";
 import { readViewToken, makeViewToken } from "./viewToken";
+import { Directory } from "./directory";
+
+export { Directory };
 import { MAIN_ID, dedupeTabs, textKey, type FileTab } from "../shared/files";
 
 const EXPLAIN_MODEL = "@cf/google/gemma-4-26b-a4b-it";
@@ -21,6 +24,33 @@ export class Room extends YServer<Env> {
   uploads = new TokenBucket(LIMITS.uploadsPerMin / 60, LIMITS.uploadsPerMin);
   explains = new TokenBucket(1 / 60, 5); // 5 at once, then one a minute per room
   checkpoints = new TokenBucket(6 / 60, 6);
+  lastEdit: number | null = null;
+  reportTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** Tell the admin directory how this room is doing (debounced: joins and leaves come in bursts). */
+  reportSoon() {
+    if (this.reportTimer) return;
+    this.reportTimer = setTimeout(() => {
+      this.reportTimer = null;
+      this.report().catch((err) => console.error("directory report failed", err));
+    }, 1000);
+  }
+
+  async report() {
+    const sql = this.ctx.storage.sql;
+    const count = (table: string) => sql.exec(`SELECT COUNT(*) AS n FROM ${table}`).one().n as number;
+    await this.env.Directory.getByName("main").report(this.name, {
+      size: sql.databaseSize,
+      // Only open sockets: one that just closed can still be listed for a moment.
+      people: [...this.getConnections()].filter((c) => c.readyState === WebSocket.OPEN).length,
+      images: count("images"),
+      files: count("files"),
+      lastEdit: this.lastEdit,
+      expires: await this.ctx.storage.getAlarm(),
+    });
+  }
+
+
   buckets = new Map<string, TokenBucket>();
 
   onConnect(conn: Connection, ctx: ConnectionContext) {
@@ -30,6 +60,7 @@ export class Room extends YServer<Env> {
     }
     // Set by the Worker for /view/ links only. Survives hibernation (connection state).
     if (ctx.request.headers.get("x-codeshare-view") === "1") conn.setState({ readOnly: true });
+    this.reportSoon();
     return super.onConnect(conn, ctx);
   }
 
@@ -57,13 +88,21 @@ export class Room extends YServer<Env> {
 
   onClose(conn: Connection, code: number, reason: string, wasClean: boolean) {
     this.buckets.delete(conn.id);
+    // A close can arrive after a report was already counted: always report again afterwards.
+    if (this.reportTimer) clearTimeout(this.reportTimer);
+    this.reportTimer = null;
+    this.reportSoon();
     return super.onClose(conn, code, reason, wasClean);
   }
 
-  async onAlarm() {
-    for (const conn of this.getConnections()) conn.close(4000, "expired");
+  /** Erase everything (expiry or the admin's Delete) and disconnect everyone with `code`. */
+  async wipe(code: number, reason: string) {
+    const name = this.name;
+    for (const conn of this.getConnections()) conn.close(code, reason);
+    await this.ctx.storage.deleteAlarm();
     await this.ctx.storage.deleteAll();
     this.createTables();
+    this.lastEdit = null;
 
     // Empty the in-memory doc too, or the old content would sync straight back.
     const doc = this.document;
@@ -81,6 +120,11 @@ export class Room extends YServer<Env> {
       const meta = doc.getMap("meta");
       for (const key of [...meta.keys()]) meta.delete(key);
     });
+    await this.env.Directory.getByName("main").remove(name);
+  }
+
+  async onAlarm() {
+    await this.wipe(4000, "expired");
   }
 
   createTables() {
@@ -124,6 +168,8 @@ export class Room extends YServer<Env> {
     );
     await this.ctx.storage.setAlarm(Date.now() + LIMITS.roomTtlMs);
     await this.checkpoint(state, false);
+    this.lastEdit = Date.now();
+    this.reportSoon();
   }
 
   /** Files and their sizes, for the history list. */
@@ -156,6 +202,21 @@ export class Room extends YServer<Env> {
     return sql.exec("SELECT last_insert_rowid() AS id").one().id as number;
   }
   async onRequest(request: Request) {
+    // Admin actions. Only the Worker can reach /internal/ paths (no public route forwards
+    // to them), and it checks the admin token first; the header is a second check.
+    const admin = new URL(request.url).pathname.match(/^\/internal\/admin\/(end|delete)$/);
+    if (admin) {
+      if (!this.env.ADMIN_TOKEN || request.headers.get("x-codeshare-admin") !== this.env.ADMIN_TOKEN) {
+        return json({ error: "forbidden" }, 403);
+      }
+      if (admin[1] === "delete") await this.wipe(4002, "deleted");
+      else {
+        for (const conn of this.getConnections()) conn.close(4001, "ended");
+        this.reportSoon();
+      }
+      return json({ ok: true }, 200);
+    }
+
     const [, kind, id] = new URL(request.url).pathname.match(/\/(images|files|history|explain)(?:\/([0-9a-f-]+))?$/) ?? [];
     if (kind === "images") return this.handleImage(request, id);
     if (kind === "files") return this.handleFile(request, id);
@@ -198,6 +259,7 @@ export class Room extends YServer<Env> {
         "INSERT INTO images (id, mime, bytes, created_at) VALUES (?, ?, ?, ?)",
         newId, mime, bytes, Date.now(),
       );
+      this.reportSoon();
       return json({ id: newId }, 201);
     }
 
@@ -314,6 +376,7 @@ export class Room extends YServer<Env> {
           );
         }
       });
+      this.reportSoon();
       return json({ id: newId, name, size: bytes.byteLength }, 201);
     }
 
@@ -383,6 +446,46 @@ function roomFromPath(segment: string) {
   }
 }
 
+async function sha256(text: string) {
+  return crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+}
+
+/** Constant-time check of the admin token (hashing first makes the lengths equal). */
+async function isAdmin(request: Request, env: Env) {
+  const given = request.headers.get("Authorization")?.replace(/^Bearer\s+/i, "") ?? "";
+  if (!env.ADMIN_TOKEN || !given) return false;
+  return crypto.subtle.timingSafeEqual(await sha256(given), await sha256(env.ADMIN_TOKEN));
+}
+
+// The admin page's API: list rooms with totals, end a session, or delete a room.
+async function handleAdmin(request: Request, env: Env, path: string) {
+  if (!env.ADMIN_TOKEN) return json({ error: "Admin isn't set up: add the ADMIN_TOKEN secret" }, 503);
+  if (!(await isAdmin(request, env))) return json({ error: "Wrong admin token" }, 401);
+
+  if (path === "/api/admin/rooms" && request.method === "GET") {
+    const rooms = await env.Directory.getByName("main").list();
+    const totals = {
+      rooms: rooms.length,
+      active: rooms.filter((r) => r.people > 0).length,
+      people: rooms.reduce((n, r) => n + r.people, 0),
+      bytes: rooms.reduce((n, r) => n + r.size, 0),
+    };
+    return json({ rooms, totals }, 200);
+  }
+
+  const action = path.match(/^\/api\/admin\/rooms\/([^/]+)\/(end|delete)$/);
+  if (action && request.method === "POST") {
+    const room = roomFromPath(action[1]);
+    if (!room) return json({ error: "bad room" }, 400);
+    const url = new URL(request.url);
+    url.pathname = `/internal/admin/${action[2]}`;
+    const headers = new Headers({ "x-codeshare-admin": env.ADMIN_TOKEN });
+    const stub = await getServerByName(env.Room, room);
+    return stub.fetch(new Request(url, { method: "POST", headers }));
+  }
+  return json({ error: "not found" }, 404);
+}
+
 /** Forward a request to a room's Durable Object under a rewritten path, optionally read-only. */
 async function toRoom(env: Env, room: string, request: Request, path: string, viewOnly: boolean) {
   const url = new URL(request.url);
@@ -398,6 +501,8 @@ const ROOM_SOCKET = /^\/parties\/room\/[a-z0-9-]{1,40}$/;
 export default {
   async fetch(request, env) {
     const path = new URL(request.url).pathname;
+
+    if (path.startsWith("/api/admin/")) return handleAdmin(request, env, path);
 
     // View-only links: the token decrypts to the room; the browser never learns its name.
     const viewSocket = path.match(VIEW_SOCKET);

@@ -9,6 +9,15 @@
   },
   // Workers AI for "Explain this code" (free plan: 10,000 Neurons/day, then requests just fail).
   "ai": { "binding": "AI" },
-  "durable_objects": { "bindings": [{ "name": "Room", "class_name": "Room" }] },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Room"] }]
+  "durable_objects": {
+    "bindings": [
+      { "name": "Room", "class_name": "Room" },
+      // Lists rooms for the admin page.
+      { "name": "Directory", "class_name": "Directory" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["Room"] },
+    { "tag": "v2", "new_sqlite_classes": ["Directory"] }
+  ]
 }

@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import type { OutLine } from "../run/runner";
 import { Markdown } from "./markdown";
+import Output from "../run/Output";
 
 export type PanelTab = "output" | "preview" | "explain";
 
@@ -12,6 +13,10 @@ type Props = {
   status: string | null;
   stdin: string;
   setStdin: (s: string) => void;
+  /** Show the answers box (JavaScript prompt(), or Python in browsers that can't pause). */
+  showAnswers: boolean;
+  waiting: { prompt: string } | null;
+  onAnswer: (text: string) => void;
   preview: { html: string; key: number } | null;
   onPreviewLog: (line: OutLine) => void;
   explain: { text: string; busy: boolean; error: string | null } | null;
@@ -20,7 +25,6 @@ type Props = {
 
 export default function BottomPanel(p: Props) {
   const frame = useRef<HTMLIFrameElement>(null);
-  const end = useRef<HTMLDivElement>(null);
   const { onPreviewLog } = p;
 
   // Console output from the HTML preview (a sandboxed iframe) arrives as messages.
@@ -32,10 +36,6 @@ export default function BottomPanel(p: Props) {
     addEventListener("message", onMessage);
     return () => removeEventListener("message", onMessage);
   }, [onPreviewLog]);
-
-  useEffect(() => {
-    end.current?.scrollIntoView({ block: "nearest" });
-  }, [p.lines.length, p.status]);
 
   const tabs: [PanelTab, string][] = [["output", "Output"]];
   if (p.preview) tabs.push(["preview", "Preview"]);
@@ -55,20 +55,17 @@ export default function BottomPanel(p: Props) {
 
       {p.tab === "output" && (
         <div className="panel-body output">
-          {p.lines.map((l, i) => (
-            <pre key={i} className={`out ${l.stream}`}>{l.text}</pre>
-          ))}
-          {p.status && <p className="side-note">{p.status}</p>}
-          {p.lines.length === 0 && !p.status && <p className="side-note">Nothing printed yet. Press Run.</p>}
-          <div ref={end} />
-          <textarea
-            className="stdin"
-            value={p.stdin}
-            onChange={(e) => p.setStdin(e.target.value)}
-            rows={1}
-            placeholder="Input for input() / prompt(): one answer per line, typed before you press Run"
-            aria-label="Program input"
-          />
+          <Output lines={p.lines} status={p.status} waiting={p.waiting} onAnswer={p.onAnswer} empty="Nothing printed yet. Press Run." />
+          {p.showAnswers && (
+            <textarea
+              className="stdin"
+              value={p.stdin}
+              onChange={(e) => p.setStdin(e.target.value)}
+              rows={1}
+              placeholder="Answers for prompt() / input(): one per line, typed before you press Run"
+              aria-label="Answers"
+            />
+          )}
         </div>
       )}
 

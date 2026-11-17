@@ -6,6 +6,7 @@ import NewRoomDialog from "./NewRoomDialog";
 
 // Tools are a separate chunk, so code rooms never download them.
 const ToolsPage = lazy(() => import("./tools/ToolsPage"));
+const AdminPage = lazy(() => import("./admin/AdminPage"));
 
 const isToolsPath = (path: string) => /^\/tools(\/|$)/.test(path);
 
@@ -37,6 +38,17 @@ export default function App() {
       </div>
     );
   }
+  if (/^\/admin\/?$/.test(location.pathname)) {
+    return (
+      <div className="app">
+        <Header label="/admin" actions={<><a className="btn" href="/tools">Tools</a>{toggle}</>} />
+        <Suspense fallback={<p className="tools-loading">Loading…</p>}>
+          <AdminPage />
+        </Suspense>
+      </div>
+    );
+  }
+
   const viewToken = location.pathname.match(/^\/view\/([A-Za-z0-9_-]+)\/?$/)?.[1];
   if (viewToken) {
     return (

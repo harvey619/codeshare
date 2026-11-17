@@ -25,7 +25,7 @@ test("files: add, switch, rename via language, shared with others", async ({ bro
   const b = await (await browser.newContext()).newPage();
   await openRoom(a, room);
   await openRoom(b, room);
-  await expect(a.locator(".tab-name")).toHaveText(["main.js"]);
+  await expect(a.locator(".tab-name")).toHaveText(["notes.md"]);
 
   await type(a, "first file");
   answer(a, "notes.py");
@@ -34,14 +34,14 @@ test("files: add, switch, rename via language, shared with others", async ({ bro
   await expect(a.getByLabel("Language")).toHaveValue("Python");
   await type(a, "second file");
 
-  await expect(b.locator(".tab-name")).toHaveText(["main.js", "notes.py"]);
+  await expect(b.locator(".tab-name")).toHaveText(["notes.md", "notes.py"]);
   await expect(b.locator(".cm-content")).toContainText("first file");
   await b.getByRole("tab", { name: "notes.py" }).click();
   await expect(b.locator(".cm-content")).toContainText("second file");
   await expect(b.locator(".cm-content")).not.toContainText("first file");
 
   await b.getByLabel("Language").selectOption("CSS");
-  await expect(a.locator(".tab-name")).toHaveText(["main.js", "notes.css"]);
+  await expect(a.locator(".tab-name")).toHaveText(["notes.md", "notes.css"]);
 });
 
 test("run JavaScript: output, prompt input, errors and stop", async ({ page }) => {
@@ -49,7 +49,7 @@ test("run JavaScript: output, prompt input, errors and stop", async ({ page }) =
   await type(page, 'const name = prompt("name?");\nconsole.log("hi " + name);\nconsole.log({ a: 1 });\nnope();');
   await page.getByLabel("Language").selectOption("JavaScript");
   await page.getByRole("button", { name: /Run/ }).click();
-  await page.getByLabel("Program input").fill("Ana");
+  await page.getByLabel("Answers").fill("Ana");
   await page.getByRole("button", { name: /Run/ }).click();
   await expect(page.locator(".out").first()).toHaveText("hi Ana");
   await expect(page.locator(".out.error")).toContainText("nope is not defined");
@@ -67,7 +67,7 @@ test("run JavaScript: output, prompt input, errors and stop", async ({ page }) =
 test("run HTML with the room's CSS and JS files", async ({ page }) => {
   await openRoom(page, newRoom());
   await page.getByLabel("Language").selectOption("HTML");
-  await expect(page.locator(".tab-name")).toHaveText(["main.html"]);
+  await expect(page.locator(".tab-name")).toHaveText(["notes.html"]);
   await type(page, '<link rel="stylesheet" href="style.css"><h1 id="t">Hello</h1><script src="app.js"></script>');
   answer(page, "style.css");
   await page.getByRole("button", { name: "New file" }).click();
@@ -76,7 +76,7 @@ test("run HTML with the room's CSS and JS files", async ({ page }) => {
   await page.getByRole("button", { name: "New file" }).click();
   await type(page, 'document.getElementById("t").textContent += " class"; console.log("ran");');
 
-  await page.getByRole("tab", { name: "main.html" }).click();
+  await page.getByRole("tab", { name: "notes.html" }).click();
   await page.getByRole("button", { name: /Run/ }).click();
   const h1 = page.frameLocator('iframe[title="Page preview"]').locator("h1");
   await expect(h1).toHaveText("Hello class");
@@ -92,13 +92,20 @@ test.describe("python", () => {
     test.setTimeout(240_000); // first run downloads Pyodide (about 10 MB)
     await openRoom(page, newRoom());
     await page.getByLabel("Language").selectOption("Python");
-    await type(page, 'name = input()\nprint("hi", name)\nprint(sum(range(5)))\n1/0');
+    await type(page, 'print("start")\nname = input("Name? ")\nage = int(input("Age? "))\nprint("hi", name, age + 1)\n1/0');
     await page.getByRole("button", { name: /Run/ }).click();
-    await page.getByLabel("Program input").fill("Ben");
-    await expect(page.getByRole("button", { name: /Run/ })).toBeVisible({ timeout: 150_000 });
-    await page.getByRole("button", { name: /Run/ }).click();
-    await expect(page.locator(".out").first()).toHaveText("hi Ben", { timeout: 150_000 });
-    await expect(page.locator(".out").nth(1)).toHaveText("10");
+    // The program pauses at each input() and waits for an answer typed into the output.
+    const ask = page.getByLabel("Program input");
+    await expect(ask).toBeVisible({ timeout: 150_000 });
+    await expect(page.locator(".out.ask")).toContainText("Name?");
+    await expect(page.locator(".out").first()).toHaveText("start");
+    await ask.fill("Ben");
+    await ask.press("Enter");
+    await expect(page.locator(".out.ask")).toContainText("Age?");
+    await ask.fill("12");
+    await ask.press("Enter");
+    await expect(page.locator(".out.input")).toHaveText(["Name? Ben", "Age? 12"]);
+    await expect(page.locator(".out.log").last()).toHaveText("hi Ben 13");
     await expect(page.locator(".out.error")).toContainText("ZeroDivisionError");
   });
 });
@@ -184,8 +191,8 @@ test("text zoom, raise hand and follow", async ({ browser }) => {
   answer(a, "second.js");
   await a.getByRole("button", { name: "New file" }).click();
   await type(a, "over here");
-  await a.getByRole("tab", { name: "main.js" }).click();
-  await expect(b.locator(".tab.active .tab-name")).toHaveText("main.js");
+  await a.getByRole("tab", { name: "notes.md" }).click();
+  await expect(b.locator(".tab.active .tab-name")).toHaveText("notes.md");
   await b.locator(".person-btn").first().click();
   await expect(b.getByText(/^Following/)).toBeVisible();
   await a.getByRole("tab", { name: "second.js" }).click();
@@ -199,10 +206,38 @@ test("download gives the file its name, explain validates input", async ({ page,
   await type(page, "let x = 1;");
   const download = page.waitForEvent("download");
   await page.getByRole("button", { name: "Download" }).click();
-  expect((await download).suggestedFilename()).toBe("main.js");
+  expect((await download).suggestedFilename()).toBe("notes.md");
 
   const empty = await request.post(`/api/rooms${room}/explain`, { data: { code: "  " } });
   expect(empty.status()).toBe(400);
   const huge = await request.post(`/api/rooms${room}/explain`, { data: { code: "x".repeat(13_000) } });
   expect(huge.status()).toBe(413);
+});
+
+test("the bare domain opens the shared 'now' room, as Markdown notes", async ({ page }) => {
+  await page.goto("/");
+  await expect(page).toHaveURL(/\/now$/);
+  await expect(page.locator(".room")).toHaveText("/now");
+  await page.goto("/!!!");
+  await expect(page).toHaveURL(/\/now$/);
+});
+
+test("Markdown notes: highlighted, and Preview shows them formatted", async ({ page }) => {
+  await openRoom(page, newRoom());
+  await expect(page.locator(".tab-name")).toHaveText(["notes.md"]);
+  await expect(page.getByLabel("Language")).toHaveValue("Markdown");
+  await type(page, "# Today\n\n- **loops**\n- lists");
+  await page.getByRole("button", { name: "▶ Preview" }).click();
+  const doc = page.frameLocator('iframe[title="Page preview"]');
+  await expect(doc.locator("h1")).toHaveText("Today");
+  await expect(doc.locator("li strong")).toHaveText("loops");
+});
+
+test("text can be made very large", async ({ page }) => {
+  await openRoom(page, newRoom());
+  const bigger = page.getByRole("button", { name: "Bigger text" });
+  while (await bigger.isEnabled()) await bigger.click();
+  const size = await page.locator(".cm-content").evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+  expect(size).toBe(64);
+  await page.evaluate(() => localStorage.removeItem("codeshare-font-size"));
 });

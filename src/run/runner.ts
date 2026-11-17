@@ -8,10 +8,14 @@ export const PYODIDE_VERSION = "0.29.5";
 const PYODIDE = `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full/`;
 
 export type RunFile = { name: string; text: string };
-export type OutLine = { stream: "log" | "warn" | "error" | "info"; text: string };
+export type OutLine = { stream: "log" | "warn" | "error" | "info" | "input"; text: string };
 export type RunEvent =
   | { type: "out"; stream: OutLine["stream"]; text: string }
   | { type: "status"; text: string }
+  /** The program called input() and is paused until sendInput(). */
+  | { type: "input"; prompt: string }
+  /** Whether this browser can pause Python for input() (JSPI), sent once Python is loaded. */
+  | { type: "mode"; interactive: boolean }
   | { type: "done"; stopped?: boolean };
 
 // Plain JavaScript console programs. `prompt()` reads lines from the Input box.
@@ -44,8 +48,32 @@ onmessage = async (e) => {
 const PY_WORKER = `
 importScripts("${PYODIDE}pyodide.js");
 let py = null;
+let interactive = false;
+let answer = null; // resolves the input() that is waiting
 const out = (stream) => ({ batched: (text) => postMessage({ type: "out", stream, text }) });
+// Called from Python's input(): ask the page for a line and wait for it.
+self.askInput = (prompt) => new Promise((resolve) => {
+  answer = resolve;
+  postMessage({ type: "input", prompt });
+});
+// input() pauses the program (like a terminal) in browsers with JSPI (Chrome, Edge).
+// Elsewhere it reads the lines typed in the answers box before Run.
+const SETUP = [
+  "import builtins, sys",
+  "from pyodide.ffi import can_run_sync, run_sync",
+  "from js import askInput",
+  "def _input(prompt=''):",
+  "    sys.stdout.flush()",
+  "    sys.stderr.flush()",
+  "    return run_sync(askInput(str(prompt)))",
+  "if can_run_sync(): builtins.input = _input",
+  "can_run_sync()",
+].join("\\n");
 onmessage = async (e) => {
+  if (e.data.type === "stdin") {
+    if (answer) { const r = answer; answer = null; r(e.data.text); }
+    return;
+  }
   const { code, stdin, files } = e.data;
   try {
     if (!py) {
@@ -61,6 +89,11 @@ onmessage = async (e) => {
       }
       postMessage({ type: "status", text: "Running…" });
     }
+    if (!py._codeshareReady) {
+      try { interactive = !!(await py.runPythonAsync(SETUP)); } catch { interactive = false; }
+      py._codeshareReady = true;
+      postMessage({ type: "mode", interactive });
+    }
     py.setStdout(out("log"));
     py.setStderr(out("error"));
     const lines = stdin === "" ? [] : stdin.split("\\n");
@@ -74,7 +107,15 @@ onmessage = async (e) => {
     await py.loadPackagesFromImports(code);
     const globals = py.globals.get("dict")();
     globals.set("__name__", "__main__");
-    await py.runPythonAsync(code, { globals });
+    // Not interactive: say where to type answers instead of a bare EOFError.
+    try {
+      await py.runPythonAsync(code, { globals });
+    } catch (err) {
+      if (!interactive && String(err && err.message).includes("EOFError")) {
+        postMessage({ type: "out", stream: "info", text: "This browser can't pause for input(). Type your answers in the Answers box (one per line) and press Run again, or use Chrome or Edge." });
+      }
+      throw err;
+    }
     globals.destroy();
   } catch (err) {
     // Hide Pyodide's own frames: keep the traceback from the student's code onwards.
@@ -99,6 +140,7 @@ onmessage = (e) => {
   const m = e.data;
   if (m.type === "js") { js && js.terminate(); js = wire(make(${JSON.stringify(JS_WORKER)})); js.postMessage(m); }
   if (m.type === "py") { py = py || wire(make(${JSON.stringify(PY_WORKER)})); py.postMessage(m); }
+  if (m.type === "stdin" && py) py.postMessage(m);
   if (m.type === "stop") { js && js.terminate(); py && py.terminate(); js = py = null; send({ type: "done", stopped: true }); }
 };
 send({ type: "ready" });
@@ -145,6 +187,11 @@ export class Runner {
     this.frame!.contentWindow!.postMessage({ type: kind, code, stdin, files }, "*");
   }
 
+  /** Answer a paused input() call. */
+  sendInput(text: string) {
+    this.frame?.contentWindow?.postMessage({ type: "stdin", text }, "*");
+  }
+
   async stop() {
     if (!this.frame) return;
     await this.host();
@@ -159,10 +206,11 @@ export class Runner {
   }
 }
 
-export function runKind(name: string): "js" | "py" | "html" | null {
+export function runKind(name: string): "js" | "py" | "html" | "md" | null {
   const ext = name.slice(name.lastIndexOf(".") + 1).toLowerCase();
   if (["js", "mjs", "cjs"].includes(ext)) return "js";
   if (ext === "py") return "py";
   if (["html", "htm"].includes(ext)) return "html";
+  if (["md", "markdown"].includes(ext)) return "md";
   return null;
 }

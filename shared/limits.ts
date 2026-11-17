@@ -9,6 +9,9 @@ export const LIMITS = {
 
 const MAX_ROOM_LEN = 40;
 
+/** The room everyone lands in from harveycodes.com. */
+export const DEFAULT_ROOM = "now";
+
 export function normalizeRoomName(raw: string): string | null {
   const name = raw
     .toLowerCase()
@@ -20,7 +23,7 @@ export function normalizeRoomName(raw: string): string | null {
 }
 
 // "/tools/..." and "/view/..." are app pages, never rooms ("/tools/qr" normalises to "tools-qr").
-const RESERVED = ["tools", "view"];
+const RESERVED = ["tools", "view", "admin"];
 export function isReservedRoom(name: string): boolean {
   return RESERVED.some((r) => name === r || name.startsWith(r + "-"));
 }

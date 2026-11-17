@@ -6,9 +6,10 @@ import { python } from "@codemirror/lang-python";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { Runner, type OutLine, type RunEvent } from "../run/runner";
 import { downloadBlob, useStored } from "./util";
+import Output from "../run/Output";
 
 const SAMPLE = `# Press Run (or Ctrl/Cmd + Enter)
-name = "class"
+name = input("What's your name? ")
 for i in range(1, 4):
     print(f"Hello {name}, this is line {i}")
 
@@ -26,6 +27,8 @@ export default function PythonTool() {
   const [lines, setLines] = useState<OutLine[]>([]);
   const [status, setStatus] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
+  const [waiting, setWaiting] = useState<{ prompt: string } | null>(null);
+  const [interactive, setInteractive] = useState<boolean | null>(null);
 
   useEffect(() => {
     const dark = document.documentElement.dataset.theme !== "light";
@@ -47,8 +50,11 @@ export default function PythonTool() {
   const onEvent = useCallback((e: RunEvent) => {
     if (e.type === "out") setLines((prev) => [...prev.slice(-499), { stream: e.stream, text: e.text }]);
     else if (e.type === "status") setStatus(e.text);
+    else if (e.type === "input") setWaiting({ prompt: e.prompt });
+    else if (e.type === "mode") setInteractive(e.interactive);
     else {
       setRunning(false);
+      setWaiting(null);
       setStatus(e.stopped ? "Stopped." : null);
     }
   }, []);
@@ -56,6 +62,7 @@ export default function PythonTool() {
   function run() {
     runner.current ??= new Runner(onEvent);
     setLines([]);
+    setWaiting(null);
     setRunning(true);
     setStatus("Running…");
     runner.current.run("py", view.current?.state.doc.toString() ?? "", stdin, []);
@@ -87,13 +94,21 @@ export default function PythonTool() {
         <span className="side-note">Runs in your browser with Pyodide. numpy, pandas and other common packages load when you import them.</span>
       </div>
       <div ref={host} className="py-editor" />
-      <textarea className="stdin" value={stdin} onChange={(e) => setStdin(e.target.value)} rows={1} placeholder="Input for input(): one answer per line, typed before you press Run" aria-label="Program input" />
+      {interactive === false && (
+        <textarea className="stdin" value={stdin} onChange={(e) => setStdin(e.target.value)} rows={1} placeholder="Answers for input(): one per line, typed before you press Run" aria-label="Answers" />
+      )}
       <div className="py-output" aria-label="Output" aria-live="polite">
-        {lines.map((l, i) => (
-          <pre key={i} className={`out ${l.stream}`}>{l.text}</pre>
-        ))}
-        {status && <p className="side-note">{status}</p>}
-        {lines.length === 0 && !status && <p className="side-note">Output appears here.</p>}
+        <Output
+          lines={lines}
+          status={status}
+          waiting={waiting}
+          empty="Output appears here."
+          onAnswer={(text) => {
+            setLines((prev) => [...prev, { stream: "input", text: (waiting?.prompt ?? "") + text }]);
+            setWaiting(null);
+            runner.current?.sendInput(text);
+          }}
+        />
       </div>
     </div>
   );

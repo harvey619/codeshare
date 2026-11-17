@@ -8,13 +8,14 @@ import { python } from "@codemirror/lang-python";
 import { html } from "@codemirror/lang-html";
 import { css } from "@codemirror/lang-css";
 import { java } from "@codemirror/lang-java";
+import { markdown } from "@codemirror/lang-markdown";
 import * as Y from "yjs";
 import YProvider from "y-partyserver/provider";
 import { yCollab } from "y-codemirror.next";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { LIMITS } from "../shared/limits";
 import {
-  LANGUAGES, MAIN_ID, MAX_TABS, cleanFileName, dedupeTabs, languageOf, legacyMainName, textKey, withLanguage,
+  LANGUAGES, MAIN_ID, MAX_TABS, NEW_ROOM_FILE, cleanFileName, dedupeTabs, languageOf, legacyMainName, textKey, withLanguage,
   type FileTab, type Language,
 } from "../shared/files";
 import { getLocalUser, saveLocalUser, type User } from "./presence";
@@ -27,6 +28,7 @@ import { Runner, runKind, type OutLine, type RunEvent } from "./run/runner";
 import { buildHtml } from "./run/buildHtml";
 
 const LANG_EXT: Record<Language, () => Extension> = {
+  Markdown: () => markdown(),
   JavaScript: () => javascript(),
   TypeScript: () => javascript({ typescript: true }),
   Python: () => python(),
@@ -44,13 +46,18 @@ const CLOSE_REASONS: Record<number, string> = {
   1009: "That change was too large to send.",
   1013: "This room is full (50 people max).",
   4000: "This room expired after 2 weeks without edits.",
+  4001: "The teacher ended this session. Refresh the page to rejoin.",
+  4002: "The teacher deleted this room. Refresh the page to start fresh.",
 };
+// Close codes that mean "don't reconnect on your own".
+const FINAL = new Set([4001, 4002]);
 
 type Other = User & { id: number; hand: boolean; tab?: string; line?: number };
 
 const ZOOM_KEY = "codeshare-font-size";
 const ZOOM_MIN = 10;
-const ZOOM_MAX = 32;
+const ZOOM_MAX = 64;
+const zoomStep = (z: number) => (z < 20 ? 2 : 4);
 function loadZoom() {
   try {
     const n = Number(localStorage.getItem(ZOOM_KEY));
@@ -116,11 +123,13 @@ export default function Editor({ room, viewToken, dark }: Props) {
   const [runStatus, setRunStatus] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const [stdin, setStdin] = useState("");
+  const [waiting, setWaiting] = useState<{ prompt: string } | null>(null);
+  const [pyInteractive, setPyInteractive] = useState<boolean | null>(null);
   const [preview, setPreview] = useState<{ html: string; key: number } | null>(null);
   const [explain, setExplain] = useState<{ text: string; busy: boolean; error: string | null } | null>(null);
   const runner = useRef<Runner | null>(null);
 
-  const shownTabs = tabs.length ? tabs : [{ id: MAIN_ID, name: "main.js" }];
+  const shownTabs = tabs.length ? tabs : [{ id: MAIN_ID, name: NEW_ROOM_FILE }];
   const activeTab = shownTabs.find((t) => t.id === active) ?? shownTabs[0];
   const kind = runKind(activeTab.name);
 
@@ -137,9 +146,15 @@ export default function Editor({ room, viewToken, dark }: Props) {
     const local = getLocalUser();
     awareness.setLocalStateField("user", { ...local, colorLight: local.color + "33" });
 
+    // A new room starts with notes.md; a room from before files existed keeps its code's language.
+    const firstName = () => {
+      const lang = ymeta.get("language");
+      if (lang) return legacyMainName(lang);
+      return doc.getText("code").length ? legacyMainName(undefined) : NEW_ROOM_FILE;
+    };
     const currentTabs = () => {
       const list = dedupeTabs(ytabs.toArray());
-      return list.length ? list : [{ id: MAIN_ID, name: legacyMainName(ymeta.get("language")) }];
+      return list.length ? list : [{ id: MAIN_ID, name: firstName() }];
     };
     const nameOf = (id: string) => currentTabs().find((t) => t.id === id)?.name ?? "main.js";
 
@@ -208,7 +223,7 @@ export default function Editor({ room, viewToken, dark }: Props) {
     // The first person into a room creates the first tab (named after the old language setting).
     provider.on("synced", () => {
       if (!readOnly && ytabs.length === 0) {
-        ytabs.push([{ id: MAIN_ID, name: legacyMainName(ymeta.get("language")) }]);
+        ytabs.push([{ id: MAIN_ID, name: firstName() }]);
       }
     });
 
@@ -246,6 +261,7 @@ export default function Editor({ room, viewToken, dark }: Props) {
     provider.on("connection-close", (event: CloseEvent | null) => {
       const reason = event && CLOSE_REASONS[event.code];
       if (reason) setNotice(reason);
+      if (event && FINAL.has(event.code)) provider.disconnect();
     });
     provider.on("custom-message", (message: string) => {
       if (message === "too-large") setNotice("This room is too large to save. Delete some content.");
@@ -316,6 +332,9 @@ export default function Editor({ room, viewToken, dark }: Props) {
       awareness.off("change", onAwareness);
       view.destroy();
       provider.destroy();
+      // y-partyserver's connect() is async and can open the socket after destroy() (React's
+      // dev double-mount does exactly this). Disconnect again once it has run.
+      setTimeout(() => provider.disconnect(), 0);
       doc.destroy();
       activeRef.current = MAIN_ID;
     };
@@ -448,8 +467,11 @@ export default function Editor({ room, viewToken, dark }: Props) {
     (e: RunEvent) => {
       if (e.type === "out") addLine({ stream: e.stream, text: e.text });
       else if (e.type === "status") setRunStatus(e.text);
+      else if (e.type === "input") setWaiting({ prompt: e.prompt });
+      else if (e.type === "mode") setPyInteractive(e.interactive);
       else {
         setRunning(false);
+        setWaiting(null);
         setRunStatus(e.stopped ? "Stopped." : null);
       }
     },
@@ -463,6 +485,14 @@ export default function Editor({ room, viewToken, dark }: Props) {
     const mine = code();
     const rest = all.filter((f) => f.name !== activeTab.name);
     setLines([]);
+    if (kind === "md") {
+      setRunStatus(null);
+      setPanel("preview");
+      import("./run/markdownPage").then(({ markdownPage }) =>
+        setPreview((p) => ({ html: markdownPage(mine), key: (p?.key ?? 0) + 1 })),
+      );
+      return;
+    }
     if (kind === "html") {
       setRunStatus(null);
       setPreview((p) => ({ html: buildHtml(mine, rest), key: (p?.key ?? 0) + 1 }));
@@ -470,6 +500,7 @@ export default function Editor({ room, viewToken, dark }: Props) {
       return;
     }
     runner.current ??= new Runner(onRunEvent);
+    setWaiting(null);
     setRunning(true);
     setRunStatus("Running…");
     setPanel("output");
@@ -546,11 +577,13 @@ export default function Editor({ room, viewToken, dark }: Props) {
           (running ? (
             <button className="btn small stop" onClick={() => runner.current?.stop()}>■ Stop</button>
           ) : (
-            <button className="btn small run" onClick={run} title="Run this file (Ctrl/Cmd + Enter)">▶ Run</button>
+            <button className="btn small run" onClick={run} title={`${kind === "md" ? "Show formatted" : "Run this file"} (Ctrl/Cmd + Enter)`}>
+              {kind === "md" ? "▶ Preview" : "▶ Run"}
+            </button>
           ))}
         <span className="zoom">
-          <button className="btn small" onClick={() => setZoom((z) => Math.max(ZOOM_MIN, z - 2))} disabled={zoom <= ZOOM_MIN} title="Smaller text" aria-label="Smaller text">A−</button>
-          <button className="btn small" onClick={() => setZoom((z) => Math.min(ZOOM_MAX, z + 2))} disabled={zoom >= ZOOM_MAX} title="Bigger text" aria-label="Bigger text">A+</button>
+          <button className="btn small" onClick={() => setZoom((z) => Math.max(ZOOM_MIN, z - zoomStep(z - 1)))} disabled={zoom <= ZOOM_MIN} title="Smaller text" aria-label="Smaller text">A−</button>
+          <button className="btn small" onClick={() => setZoom((z) => Math.min(ZOOM_MAX, z + zoomStep(z)))} disabled={zoom >= ZOOM_MAX} title="Bigger text" aria-label="Bigger text">A+</button>
         </span>
         <button className="btn small" onClick={copyCode}>{codeCopied ? "Copied ✓" : "Copy code"}</button>
         <button className="btn small" onClick={download} title={`Download ${activeTab.name}`}>Download</button>
@@ -614,6 +647,13 @@ export default function Editor({ room, viewToken, dark }: Props) {
               lines={lines}
               status={runStatus}
               stdin={stdin}
+              showAnswers={kind === "js" || (kind === "py" && pyInteractive === false)}
+              waiting={waiting}
+              onAnswer={(text) => {
+                addLine({ stream: "input", text: (waiting?.prompt ?? "") + text });
+                setWaiting(null);
+                runner.current?.sendInput(text);
+              }}
               setStdin={setStdin}
               preview={preview}
               onPreviewLog={addLine}

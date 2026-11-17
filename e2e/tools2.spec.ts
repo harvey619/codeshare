@@ -181,9 +181,13 @@ test.describe("python", () => {
     await page.goto("/tools/python");
     await page.locator(".py-editor .cm-content").click();
     await page.keyboard.press("ControlOrMeta+a");
-    await page.keyboard.insertText("print(6 * 7)");
+    await page.keyboard.insertText('n = int(input("Number? "))\nprint(n * 7)');
     await page.getByRole("button", { name: /Run/ }).click();
-    await expect(page.locator(".py-output .out")).toHaveText(["42"], { timeout: 180_000 });
+    const ask = page.getByLabel("Program input");
+    await expect(ask).toBeVisible({ timeout: 180_000 });
+    await ask.fill("6");
+    await ask.press("Enter");
+    await expect(page.locator(".py-output .out")).toHaveText(["Number? 6", "42"]);
   });
 });
 

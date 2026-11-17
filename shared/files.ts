@@ -11,7 +11,7 @@ export const MAX_TABS = 10;
 
 export const textKey = (id: string) => (id === MAIN_ID ? "code" : `file:${id}`);
 
-export type Language = "JavaScript" | "TypeScript" | "Python" | "HTML" | "CSS" | "Java" | "Plain text";
+export type Language = "Markdown" | "JavaScript" | "TypeScript" | "Python" | "HTML" | "CSS" | "Java" | "Plain text";
 
 const BY_EXT: Record<string, Language> = {
   js: "JavaScript", mjs: "JavaScript", cjs: "JavaScript", jsx: "JavaScript",
@@ -20,10 +20,11 @@ const BY_EXT: Record<string, Language> = {
   html: "HTML", htm: "HTML",
   css: "CSS",
   java: "Java",
+  md: "Markdown", markdown: "Markdown",
 };
 
 export const EXT_FOR: Record<Language, string> = {
-  JavaScript: "js", TypeScript: "ts", Python: "py", HTML: "html", CSS: "css", Java: "java", "Plain text": "txt",
+  Markdown: "md", JavaScript: "js", TypeScript: "ts", Python: "py", HTML: "html", CSS: "css", Java: "java", "Plain text": "txt",
 };
 
 export const LANGUAGES = Object.keys(EXT_FOR) as Language[];
@@ -43,6 +44,9 @@ export function withLanguage(name: string, lang: Language) {
   const base = dot > 0 ? name.slice(0, dot) : name;
   return `${base}.${EXT_FOR[lang]}`;
 }
+
+/** The first file of a brand-new room: notes, which Run shows formatted. */
+export const NEW_ROOM_FILE = "notes.md";
 
 /** First file's name for a room made before multi-file support, from its old language setting. */
 export function legacyMainName(language: string | undefined) {
