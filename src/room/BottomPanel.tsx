@@ -1,7 +1,9 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { OutLine } from "../run/runner";
 import { Markdown } from "./markdown";
 import Output from "../run/Output";
+import TurtleStage from "../run/TurtleStage";
+import type { TurtleView } from "../run/turtleView";
 
 export type PanelTab = "output" | "preview" | "explain";
 
@@ -21,11 +23,15 @@ type Props = {
   onPreviewLog: (line: OutLine) => void;
   explain: { text: string; busy: boolean; error: string | null } | null;
   canExplain: boolean;
+  /** Set once a Python program has used turtle. */
+  turtle: TurtleView | null;
 };
 
 export default function BottomPanel(p: Props) {
   const frame = useRef<HTMLIFrameElement>(null);
   const { onPreviewLog } = p;
+  // Turtle drawings need room: the panel opens tall when there's one.
+  const [big, setBig] = useState(true);
 
   // Console output from the HTML preview (a sandboxed iframe) arrives as messages.
   useEffect(() => {
@@ -42,7 +48,7 @@ export default function BottomPanel(p: Props) {
   if (p.canExplain || p.explain) tabs.push(["explain", "Explain"]);
 
   return (
-    <section className="panel" aria-label="Run output">
+    <section className={`panel${big && p.turtle ? " big" : ""}`} aria-label="Run output">
       <div className="panel-head">
         {tabs.map(([id, label]) => (
           <button key={id} className={`panel-tab${p.tab === id ? " active" : ""}`} onClick={() => p.onTab(id)}>
@@ -50,12 +56,19 @@ export default function BottomPanel(p: Props) {
             {id === "output" && p.lines.length > 0 && <span className="count">{p.lines.length}</span>}
           </button>
         ))}
+        {p.turtle && p.tab === "output" && (
+          <button className="tab-x panel-size" onClick={() => setBig((b) => !b)} aria-pressed={big} title={big ? "Smaller drawing" : "Bigger drawing"}>
+            {big ? "Smaller" : "Bigger"}
+          </button>
+        )}
         <button className="tab-x panel-close" onClick={p.onClose} title="Close panel" aria-label="Close panel">✕</button>
       </div>
 
       {p.tab === "output" && (
-        <div className="panel-body output">
-          <Output lines={p.lines} status={p.status} waiting={p.waiting} onAnswer={p.onAnswer} empty="Nothing printed yet. Press Run." />
+        <div className={`panel-body output${p.turtle ? " with-turtle" : ""}`}>
+          {p.turtle && <TurtleStage view={p.turtle} />}
+          <div className="out-text">
+          <Output lines={p.lines} status={p.status} waiting={p.waiting} onAnswer={p.onAnswer} empty={p.turtle ? "" : "Nothing printed yet. Press Run."} />
           {p.showAnswers && (
             <textarea
               className="stdin"
@@ -66,6 +79,7 @@ export default function BottomPanel(p: Props) {
               aria-label="Answers"
             />
           )}
+          </div>
         </div>
       )}
 

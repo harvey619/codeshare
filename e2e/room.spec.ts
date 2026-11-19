@@ -108,6 +108,46 @@ test.describe("python", () => {
     await expect(page.locator(".out.log").last()).toHaveText("hi Ben 13");
     await expect(page.locator(".out.error")).toContainText("ZeroDivisionError");
   });
+
+  test("turtle drawing in a room, with input() before drawing", async ({ page }) => {
+    test.setTimeout(240_000);
+    await openRoom(page, newRoom());
+    await page.getByLabel("Language").selectOption("Python");
+    await type(
+      page,
+      [
+        "import turtle",
+        "t = turtle.Turtle()",
+        't.shape("turtle")',
+        't.color("green")',
+        "t.pensize(3)",
+        'sides = int(input("Sides? "))',
+        "for _ in range(sides):",
+        "    t.forward(80)",
+        "    t.left(360 / sides)",
+        "t.penup()",
+        "t.goto(-150, -120)",
+        "t.pendown()",
+        "t.circle(40)",
+        't.dot(20, "blue")',
+        't.write("Hello turtle", font=("Arial", 16, "bold"))',
+        "t.stamp()",
+        "t.goto(150, -120)",
+        'print("drew", sides)',
+      ].join("\n"),
+    );
+    await page.getByRole("button", { name: /Run/ }).click();
+    const ask = page.getByLabel("Program input");
+    await expect(ask).toBeVisible({ timeout: 150_000 });
+    await ask.fill("5");
+    await ask.press("Enter");
+    await expect(page.locator(".out.log")).toHaveText(["drew 5"]);
+    await expect(page.locator(".turtle-stage")).toBeVisible();
+    // While it draws, Run turns into Stop; then it's back.
+    await expect(page.getByRole("button", { name: /Stop/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Run/ })).toBeVisible({ timeout: 30_000 });
+    if (process.env.SHOT) await page.screenshot({ path: process.env.SHOT });
+  });
 });
 
 test("history: restore brings back wiped code", async ({ page, request }) => {

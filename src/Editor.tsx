@@ -24,6 +24,7 @@ import Sidebar from "./Sidebar";
 import Tabs from "./room/Tabs";
 import BottomPanel, { type PanelTab } from "./room/BottomPanel";
 import HistoryDialog from "./room/HistoryDialog";
+import { TurtleView } from "./run/turtleView";
 import { Runner, runKind, type OutLine, type RunEvent } from "./run/runner";
 import { buildHtml } from "./run/buildHtml";
 
@@ -128,6 +129,11 @@ export default function Editor({ room, viewToken, dark }: Props) {
   const [preview, setPreview] = useState<{ html: string; key: number } | null>(null);
   const [explain, setExplain] = useState<{ text: string; busy: boolean; error: string | null } | null>(null);
   const runner = useRef<Runner | null>(null);
+  // Python turtle drawings: created on first use, kept for the session.
+  const turtle = useRef<TurtleView | null>(null);
+  const [turtleOn, setTurtleOn] = useState<TurtleView | null>(null);
+  const [turtleBusy, setTurtleBusy] = useState(false);
+  const getTurtle = useCallback(() => (turtle.current ??= new TurtleView(setTurtleBusy)), []);
 
   const shownTabs = tabs.length ? tabs : [{ id: MAIN_ID, name: NEW_ROOM_FILE }];
   const activeTab = shownTabs.find((t) => t.id === active) ?? shownTabs[0];
@@ -471,13 +477,18 @@ export default function Editor({ room, viewToken, dark }: Props) {
       else if (e.type === "status") setRunStatus(e.text);
       else if (e.type === "input") setWaiting({ prompt: e.prompt });
       else if (e.type === "mode") setPyInteractive(e.interactive);
+      else if (e.type === "turtle") {
+        const view = getTurtle();
+        view.push(e.ops);
+        setTurtleOn(view);
+      } else if (e.type === "turtleWait") getTurtle().whenPending(e.pending).then(() => runner.current?.turtleReady());
       else {
         setRunning(false);
         setWaiting(null);
         setRunStatus(e.stopped ? "Stopped." : null);
       }
     },
-    [addLine],
+    [addLine, getTurtle],
   );
 
   function run() {
@@ -487,6 +498,8 @@ export default function Editor({ room, viewToken, dark }: Props) {
     const mine = code();
     const rest = all.filter((f) => f.name !== activeTab.name);
     setLines([]);
+    turtle.current?.reset();
+    setTurtleOn(null);
     if (kind === "md") {
       setRunStatus(null);
       setPanel("preview");
@@ -576,8 +589,16 @@ export default function Editor({ room, viewToken, dark }: Props) {
           ))}
         </select>
         {kind &&
-          (running ? (
-            <button className="btn small stop" onClick={() => runner.current?.stop()}>■ Stop</button>
+          (running || turtleBusy ? (
+            <button
+              className="btn small stop"
+              onClick={() => {
+                runner.current?.stop();
+                turtle.current?.stop();
+              }}
+            >
+              ■ Stop
+            </button>
           ) : (
             <button className="btn small run" onClick={run} title={`${kind === "md" ? "Show formatted" : "Run this file"} (Ctrl/Cmd + Enter)`}>
               {kind === "md" ? "▶ Preview" : "▶ Run"}
@@ -661,6 +682,7 @@ export default function Editor({ room, viewToken, dark }: Props) {
               onPreviewLog={addLine}
               explain={explain}
               canExplain={!readOnly}
+              turtle={turtleOn}
             />
           )}
         </div>

@@ -43,7 +43,7 @@ export default function Output({ lines, status, waiting, onAnswer, empty }: Prop
         </form>
       )}
       {status && !waiting && <p className="side-note">{status}</p>}
-      {lines.length === 0 && !status && !waiting && <p className="side-note">{empty}</p>}
+      {lines.length === 0 && !status && !waiting && empty && <p className="side-note">{empty}</p>}
       <div ref={end} />
     </>
   );

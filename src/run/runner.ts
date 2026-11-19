@@ -7,6 +7,9 @@
 export const PYODIDE_VERSION = "0.29.5";
 const PYODIDE = `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full/`;
 
+import TURTLE_PY from "./turtle.py?raw";
+import type { TurtleOp } from "./turtleView";
+
 export type RunFile = { name: string; text: string };
 export type OutLine = { stream: "log" | "warn" | "error" | "info" | "input"; text: string };
 export type RunEvent =
@@ -14,6 +17,10 @@ export type RunEvent =
   | { type: "status"; text: string }
   /** The program called input() and is paused until sendInput(). */
   | { type: "input"; prompt: string }
+  /** Drawing steps from turtle. */
+  | { type: "turtle"; ops: TurtleOp[] }
+  /** turtle is waiting until at most `pending` steps are left to draw; answer with turtleReady(). */
+  | { type: "turtleWait"; pending: number }
   /** Whether this browser can pause Python for input() (JSPI), sent once Python is loaded. */
   | { type: "mode"; interactive: boolean }
   | { type: "done"; stopped?: boolean };
@@ -50,11 +57,19 @@ importScripts("${PYODIDE}pyodide.js");
 let py = null;
 let interactive = false;
 let answer = null; // resolves the input() that is waiting
+let turtleReady = null; // resolves turtle's wait for the page to catch up with the drawing
 const out = (stream) => ({ batched: (text) => postMessage({ type: "out", stream, text }) });
 // Called from Python's input(): ask the page for a line and wait for it.
 self.askInput = (prompt) => new Promise((resolve) => {
   answer = resolve;
   postMessage({ type: "input", prompt });
+});
+// turtle.py sends drawing steps to the page, and can wait for the page to finish drawing them.
+self.turtleSend = (json) => postMessage({ type: "turtle", ops: JSON.parse(json) });
+self.turtleNote = (text) => postMessage({ type: "out", stream: "info", text });
+self.turtleWait = (pending) => new Promise((resolve) => {
+  turtleReady = resolve;
+  postMessage({ type: "turtleWait", pending });
 });
 // input() pauses the program (like a terminal) in browsers with JSPI (Chrome, Edge).
 // Elsewhere it reads the lines typed in the answers box before Run.
@@ -63,18 +78,28 @@ const SETUP = [
   "from pyodide.ffi import can_run_sync, run_sync",
   "from js import askInput",
   "def _input(prompt=''):",
+  "    _t = sys.modules.get('turtle')",
+  "    if _t is not None and hasattr(_t, '_wait'): _t._wait(0)",
   "    sys.stdout.flush()",
   "    sys.stderr.flush()",
   "    return run_sync(askInput(str(prompt)))",
   "if can_run_sync(): builtins.input = _input",
   "can_run_sync()",
 ].join("\\n");
+// Send any drawing steps still waiting in turtle's buffer.
+const flushTurtle = () => {
+  try { py.runPython("import sys\\n_t = sys.modules.get('turtle')\\nif _t is not None and hasattr(_t, '_flush'): _t._flush()"); } catch {}
+};
 onmessage = async (e) => {
   if (e.data.type === "stdin") {
     if (answer) { const r = answer; answer = null; r(e.data.text); }
     return;
   }
-  const { code, stdin, files } = e.data;
+  if (e.data.type === "turtleReady") {
+    if (turtleReady) { const r = turtleReady; turtleReady = null; r(); }
+    return;
+  }
+  const { code, stdin, files, turtle } = e.data;
   try {
     if (!py) {
       postMessage({ type: "status", text: "Loading Python (about 10 MB, only the first time)…" });
@@ -104,6 +129,10 @@ onmessage = async (e) => {
     const names = files.filter((f) => f.name.endsWith(".py")).map((f) => f.name.slice(0, -3));
     py.globals.set("_room_modules", py.toPy(names));
     py.runPython("import sys\\nfor _m in _room_modules: sys.modules.pop(_m, None)");
+    // Our browser turtle, fresh for every run.
+    py.FS.mkdirTree("/codeshare");
+    py.FS.writeFile("/codeshare/turtle.py", turtle);
+    py.runPython("import sys\\nif '/codeshare' not in sys.path: sys.path.insert(0, '/codeshare')\\nsys.modules.pop('turtle', None)");
     await py.loadPackagesFromImports(code);
     const globals = py.globals.get("dict")();
     globals.set("__name__", "__main__");
@@ -111,11 +140,13 @@ onmessage = async (e) => {
     try {
       await py.runPythonAsync(code, { globals });
     } catch (err) {
+      flushTurtle();
       if (!interactive && String(err && err.message).includes("EOFError")) {
         postMessage({ type: "out", stream: "info", text: "This browser can't pause for input(). Type your answers in the Answers box (one per line) and press Run again, or use Chrome or Edge." });
       }
       throw err;
     }
+    flushTurtle();
     globals.destroy();
   } catch (err) {
     // Hide Pyodide's own frames: keep the traceback from the student's code onwards.
@@ -140,7 +171,7 @@ onmessage = (e) => {
   const m = e.data;
   if (m.type === "js") { js && js.terminate(); js = wire(make(${JSON.stringify(JS_WORKER)})); js.postMessage(m); }
   if (m.type === "py") { py = py || wire(make(${JSON.stringify(PY_WORKER)})); py.postMessage(m); }
-  if (m.type === "stdin" && py) py.postMessage(m);
+  if ((m.type === "stdin" || m.type === "turtleReady") && py) py.postMessage(m);
   if (m.type === "stop") { js && js.terminate(); py && py.terminate(); js = py = null; send({ type: "done", stopped: true }); }
 };
 send({ type: "ready" });
@@ -184,12 +215,17 @@ export class Runner {
 
   async run(kind: "js" | "py", code: string, stdin: string, files: RunFile[]) {
     await this.host();
-    this.frame!.contentWindow!.postMessage({ type: kind, code, stdin, files }, "*");
+    this.frame!.contentWindow!.postMessage({ type: kind, code, stdin, files, turtle: TURTLE_PY }, "*");
   }
 
   /** Answer a paused input() call. */
   sendInput(text: string) {
     this.frame?.contentWindow?.postMessage({ type: "stdin", text }, "*");
+  }
+
+  /** The page has drawn enough: let a waiting turtle program carry on. */
+  turtleReady() {
+    this.frame?.contentWindow?.postMessage({ type: "turtleReady" }, "*");
   }
 
   async stop() {

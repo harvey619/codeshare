@@ -7,6 +7,8 @@ import { oneDark } from "@codemirror/theme-one-dark";
 import { Runner, type OutLine, type RunEvent } from "../run/runner";
 import { downloadBlob, useStored } from "./util";
 import Output from "../run/Output";
+import TurtleStage from "../run/TurtleStage";
+import { TurtleView } from "../run/turtleView";
 
 const SAMPLE = `# Press Run (or Ctrl/Cmd + Enter)
 name = input("What's your name? ")
@@ -29,6 +31,9 @@ export default function PythonTool() {
   const [running, setRunning] = useState(false);
   const [waiting, setWaiting] = useState<{ prompt: string } | null>(null);
   const [interactive, setInteractive] = useState<boolean | null>(null);
+  const [turtleOn, setTurtleOn] = useState(false);
+  const [turtleBusy, setTurtleBusy] = useState(false);
+  const [turtle] = useState(() => new TurtleView(setTurtleBusy));
 
   useEffect(() => {
     const dark = document.documentElement.dataset.theme !== "light";
@@ -52,16 +57,22 @@ export default function PythonTool() {
     else if (e.type === "status") setStatus(e.text);
     else if (e.type === "input") setWaiting({ prompt: e.prompt });
     else if (e.type === "mode") setInteractive(e.interactive);
+    else if (e.type === "turtle") {
+      turtle.push(e.ops);
+      setTurtleOn(true);
+    } else if (e.type === "turtleWait") turtle.whenPending(e.pending).then(() => runner.current?.turtleReady());
     else {
       setRunning(false);
       setWaiting(null);
       setStatus(e.stopped ? "Stopped." : null);
     }
-  }, []);
+  }, [turtle]);
 
   function run() {
     runner.current ??= new Runner(onEvent);
     setLines([]);
+    turtle.reset();
+    setTurtleOn(false);
     setWaiting(null);
     setRunning(true);
     setStatus("Running…");
@@ -85,18 +96,27 @@ export default function PythonTool() {
   return (
     <div className="stack">
       <div className="json-bar">
-        {running ? (
-          <button className="btn stop" onClick={() => runner.current?.stop()}>■ Stop</button>
+        {running || turtleBusy ? (
+          <button
+            className="btn stop"
+            onClick={() => {
+              runner.current?.stop();
+              turtle.stop();
+            }}
+          >
+            ■ Stop
+          </button>
         ) : (
           <button className="btn run" onClick={run}>▶ Run</button>
         )}
         <button className="btn" onClick={() => downloadBlob(new Blob([view.current?.state.doc.toString() ?? ""], { type: "text/plain" }), "main.py")}>Download .py</button>
-        <span className="side-note">Runs in your browser with Pyodide. numpy, pandas and other common packages load when you import them.</span>
+        <span className="side-note">Runs in your browser with Pyodide. turtle, numpy, pandas and other common packages work when you import them.</span>
       </div>
       <div ref={host} className="py-editor" />
       {interactive === false && (
         <textarea className="stdin" value={stdin} onChange={(e) => setStdin(e.target.value)} rows={1} placeholder="Answers for input(): one per line, typed before you press Run" aria-label="Answers" />
       )}
+      {turtleOn && <TurtleStage view={turtle} className="tool" />}
       <div className="py-output" aria-label="Output" aria-live="polite">
         <Output
           lines={lines}
