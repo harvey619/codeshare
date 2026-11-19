@@ -39,10 +39,17 @@ export class Room extends YServer<Env> {
   async report() {
     const sql = this.ctx.storage.sql;
     const count = (table: string) => sql.exec(`SELECT COUNT(*) AS n FROM ${table}`).one().n as number;
-    await this.env.Directory.getByName("main").report(this.name, {
+    const directory = this.env.Directory.getByName("main");
+    // Only open sockets: one that just closed can still be listed for a moment.
+    const people = [...this.getConnections()].filter((c) => c.readyState === WebSocket.OPEN).length;
+    // Nothing saved and nobody here (for example just after Delete): keep it off the list.
+    if (people === 0 && count("snapshot") === 0 && count("files") === 0 && count("images") === 0) {
+      await directory.remove(this.name);
+      return;
+    }
+    await directory.report(this.name, {
       size: sql.databaseSize,
-      // Only open sockets: one that just closed can still be listed for a moment.
-      people: [...this.getConnections()].filter((c) => c.readyState === WebSocket.OPEN).length,
+      people,
       images: count("images"),
       files: count("files"),
       lastEdit: this.lastEdit,

@@ -28,6 +28,13 @@ My first version sent the whole document on every keystroke, and the last write 
 - **Explain**: an AI explanation of the selection or file (Workers AI, rate-limited per room).
 - Text size buttons, download a file, copy code.
 
+- **Python `input()`** pauses the program and you type the answer in the output, like a terminal (Chrome/Edge; other browsers use an answers box filled in before Run).
+- **harveycodes.com** opens the shared room `/now`. New rooms start with `notes.md`; Run shows Markdown formatted.
+
+## Admin
+
+`/admin` lists rooms (people online, size, files, last edit, expiry) with total storage, and can **End** a session (disconnects everyone, keeps the content) or **Delete** a room. It's protected by the `ADMIN_TOKEN` secret: `npx wrangler secret put ADMIN_TOKEN`. Rooms are listed by a small `Directory` Durable Object they report to; rooms made before it existed appear once they're used again.
+
 Setup for view-only links: `npx wrangler secret put VIEW_KEY` with a random base64 value (and the same in `.dev.vars` for local dev).
 
 ## Tools
