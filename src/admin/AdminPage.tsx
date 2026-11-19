@@ -35,6 +35,7 @@ export default function AdminPage() {
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const api = useCallback(
     async (path: string, method = "GET") => {
@@ -91,6 +92,19 @@ export default function AdminPage() {
     setBusy(null);
   }
 
+  async function clearEmpty() {
+    if (!confirm("Delete every room with nobody in it, no files or images, and no text? This can't be undone.")) return;
+    setBusy("clear-empty");
+    try {
+      const r: { deleted: number } = await api("clear-empty", "POST");
+      setNotice(r.deleted === 0 ? "No empty rooms to clear." : `Cleared ${r.deleted} empty room${r.deleted === 1 ? "" : "s"}.`);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "That didn't work");
+    }
+    setBusy(null);
+  }
+
   if (!token) {
     return (
       <main className="tools admin">
@@ -130,6 +144,9 @@ export default function AdminPage() {
       <div className="tool-top">
         <h1>Admin</h1>
         <button className="btn small" onClick={refresh}>Refresh</button>
+        <button className="btn small danger" onClick={clearEmpty} disabled={!!busy}>
+          {busy === "clear-empty" ? "Clearing…" : "Clear empty rooms"}
+        </button>
         <button
           className="btn small"
           onClick={() => {
@@ -146,6 +163,7 @@ export default function AdminPage() {
         </button>
       </div>
       {error && <p className="json-status bad" role="status">✗ {error}</p>}
+      {notice && <p className="json-status ok" role="status">✓ {notice}</p>}
 
       {t && (
         <div className="stats">

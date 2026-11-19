@@ -66,3 +66,37 @@ test("admin dashboard lists rooms, ends sessions and deletes rooms", async ({ br
   await expect(fresh.locator(".status")).toHaveText("live");
   await expect(fresh.locator(".cm-content")).not.toContainText("student work");
 });
+
+test("clear empty rooms deletes blank rooms and keeps ones with work", async ({ browser, request }) => {
+  const token = adminToken();
+  test.skip(!token, "no admin token available");
+  test.setTimeout(60_000);
+  const id = () => `e2e-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const blank = id();
+  const full = id();
+  const auth = { Authorization: `Bearer ${token}` };
+
+  const page = await (await browser.newContext()).newPage();
+  await page.goto(`/${blank}`);
+  await expect(page.locator(".status")).toHaveText("live");
+  await page.waitForTimeout(6000); // the new room saves its first file tab
+  await page.goto(`/${full}`);
+  await expect(page.locator(".status")).toHaveText("live");
+  await page.locator(".cm-content").click();
+  await page.keyboard.insertText("keep me");
+  await page.waitForTimeout(6000);
+  await page.close();
+
+  const names = async () => ((await (await request.get("/api/admin/rooms", { headers: auth })).json()).rooms as { name: string; people: number }[]);
+  // Dev mode can leave a phantom connection open (React double-mount): end both rooms first.
+  await expect.poll(async () => (await names()).filter((r) => [blank, full].includes(r.name)).length, { timeout: 20_000 }).toBe(2);
+  for (const r of [blank, full]) expect((await request.post(`/api/admin/rooms/${r}/end`, { headers: auth })).status()).toBe(200);
+  await expect.poll(async () => (await names()).filter((r) => [blank, full].includes(r.name) && r.people === 0).length, { timeout: 20_000 }).toBe(2);
+
+  const res = await request.post("/api/admin/clear-empty", { headers: auth });
+  expect(res.status()).toBe(200);
+  expect((await res.json()).deleted).toBeGreaterThanOrEqual(1);
+  const left = (await names()).map((r) => r.name);
+  expect(left).not.toContain(blank);
+  expect(left).toContain(full);
+});

@@ -105,6 +105,18 @@ export class Room extends YServer<Env> {
     return super.onClose(conn, code, reason, wasClean);
   }
 
+  /** Nobody here, no images or files, and every file tab is blank (only whitespace). */
+  isEmpty() {
+    const sql = this.ctx.storage.sql;
+    if ([...this.getConnections()].some((c) => c.readyState === WebSocket.OPEN)) return false;
+    const n = (table: string) => sql.exec(`SELECT COUNT(*) AS n FROM ${table}`).one().n as number;
+    if (n("images") > 0 || n("files") > 0) return false;
+    const doc = this.document;
+    return [...doc.share.keys()]
+      .filter((key) => key === "code" || key.startsWith("file:"))
+      .every((key) => doc.getText(key).toString().trim() === "");
+  }
+
   /** Erase everything (expiry or the admin's Delete) and disconnect everyone with `code`. */
   async wipe(code: number, reason: string) {
     const name = this.name;
@@ -216,10 +228,18 @@ export class Room extends YServer<Env> {
   async onRequest(request: Request) {
     // Admin actions. Only the Worker can reach /internal/ paths (no public route forwards
     // to them), and it checks the admin token first; the header is a second check.
-    const admin = new URL(request.url).pathname.match(/^\/internal\/admin\/(end|delete)$/);
+    const admin = new URL(request.url).pathname.match(/^\/internal\/admin\/(end|delete|delete-if-empty)$/);
     if (admin) {
       if (!this.env.ADMIN_TOKEN || request.headers.get("x-codeshare-admin") !== this.env.ADMIN_TOKEN) {
         return json({ error: "forbidden" }, 403);
+      }
+      if (admin[1] === "delete-if-empty") {
+        if (!this.isEmpty()) {
+          this.reportSoon();
+          return json({ deleted: false }, 200);
+        }
+        await this.wipe(4002, "deleted");
+        return json({ deleted: true }, 200);
       }
       if (admin[1] === "delete") await this.wipe(4002, "deleted");
       else {
@@ -514,6 +534,27 @@ async function handleAdmin(request: Request, env: Env, path: string) {
       bytes: rooms.reduce((n, r) => n + r.size, 0),
     };
     return json({ rooms, totals }, 200);
+  }
+
+  // Delete every room that has nothing in it. Each room checks its own content before wiping.
+  if (path === "/api/admin/clear-empty" && request.method === "POST") {
+    const candidates = (await env.Directory.getByName("main").list()).filter(
+      (r) => r.people === 0 && r.images === 0 && r.files === 0,
+    );
+    let deleted = 0;
+    for (let i = 0; i < candidates.length; i += 10) {
+      const results = await Promise.all(
+        candidates.slice(i, i + 10).map(async (r) => {
+          const url = new URL(request.url);
+          url.pathname = "/internal/admin/delete-if-empty";
+          const stub = await getServerByName(env.Room, r.name);
+          const res = await stub.fetch(new Request(url, { method: "POST", headers: { "x-codeshare-admin": env.ADMIN_TOKEN } }));
+          return res.ok && ((await res.json()) as { deleted?: boolean }).deleted === true;
+        }),
+      );
+      deleted += results.filter(Boolean).length;
+    }
+    return json({ deleted, checked: candidates.length }, 200);
   }
 
   const action = path.match(/^\/api\/admin\/rooms\/([^/]+)\/(end|delete)$/);
