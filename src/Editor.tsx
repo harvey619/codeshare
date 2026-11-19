@@ -133,7 +133,7 @@ export default function Editor({ room, viewToken, dark }: Props) {
   const turtle = useRef<TurtleView | null>(null);
   const [turtleOn, setTurtleOn] = useState<TurtleView | null>(null);
   const [turtleBusy, setTurtleBusy] = useState(false);
-  const getTurtle = useCallback(() => (turtle.current ??= new TurtleView(setTurtleBusy)), []);
+  const getTurtle = useCallback(() => (turtle.current ??= new TurtleView(setTurtleBusy, (ev) => runner.current?.turtleEvent(ev))), []);
 
   const shownTabs = tabs.length ? tabs : [{ id: MAIN_ID, name: NEW_ROOM_FILE }];
   const activeTab = shownTabs.find((t) => t.id === active) ?? shownTabs[0];
@@ -482,6 +482,12 @@ export default function Editor({ room, viewToken, dark }: Props) {
         view.push(e.ops);
         setTurtleOn(view);
       } else if (e.type === "turtleWait") getTurtle().whenPending(e.pending).then(() => runner.current?.turtleReady());
+      else if (e.type === "turtleListen") getTurtle().focus();
+      else if (e.type === "turtleEvents") {
+        const view = getTurtle();
+        view.setListening(e.on);
+        setTurtleOn(view);
+      }
       else {
         setRunning(false);
         setWaiting(null);

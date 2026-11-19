@@ -1,15 +1,19 @@
 """turtle for codeshare: the same API as Python's turtle module, drawn on a canvas in the page.
 
 Python computes every position (with the same maths as CPython's turtle), and sends drawing
-steps to the page, which animates them at CPython's speeds. Desktop-only parts (keyboard and
-mouse events, background images) are accepted but do nothing, with a one-time note.
+steps to the page, which animates them at CPython's speeds. Keys, clicks and timers come back
+from the page as events: they're handled while the program waits for the drawing (update(),
+animated moves) and, once the program has finished, by the worker until Stop is pressed.
+Background images and undo aren't supported.
 """
 
 import json
 import math
 import sys
+import traceback
 
-from js import turtleNote, turtleSend, turtleWait
+from js import (turtleBye, turtleEventsOn, turtleListen, turtleNote, turtleSend, turtleTakeEvents,
+                turtleTimer, turtleWait)
 
 try:
     from pyodide.ffi import can_run_sync, run_sync
@@ -93,11 +97,20 @@ _sent = 0
 def _send(op):
     global _sent
     _ops.append(op)
+    if _listening and op.get("s"):
+        # A program that reacts to keys stays in step with the drawing, as on the desktop,
+        # so events are handled straight away.
+        _wait(1)
+        _poll()
+        return
     if len(_ops) >= 200:
         _flush()
         _sent += 200
+        if _listening:
+            _wait(200)
+            _poll()
         # Don't let a fast loop race far ahead of the drawing (or an endless loop fill memory).
-        if _sent >= 1000:
+        elif _sent >= 1000:
             _sent = 0
             _wait(300)
 
@@ -113,6 +126,139 @@ def _wait(pending):
     _flush()
     if _CAN_WAIT:
         run_sync(turtleWait(pending))
+
+
+# ---- events: keys, clicks and timers ----
+
+_keypress = {}  # keysym (or None for any key) -> function
+_keyrelease = {}
+_screenclicks = {}  # mouse button -> [function(x, y)]
+_timers = {}  # id -> function
+_next_timer = 0
+_listening = False  # any handlers or timers: the page sends events
+_polling = False
+_drag = None  # (turtle, button) being dragged
+_ended = False
+
+# Tk names for keys that students sometimes use instead of the character.
+_KEYNAMES = {"comma": ",", "period": ".", "slash": "/", "minus": "-", "plus": "+", "equal": "=",
+             "asterisk": "*", "semicolon": ";", "colon": ":", "exclam": "!", "question": "?",
+             "less": "<", "greater": ">", "bracketleft": "[", "bracketright": "]", "Space": "space"}
+
+
+def _key(key):
+    return _KEYNAMES.get(key, key) if key is not None else None
+
+
+def _wants_events():
+    return not _ended and bool(
+        _keypress or _keyrelease or _screenclicks or _timers
+        or any(t._clicks or t._releases or t._drags for t in Screen()._turtles))
+
+
+def _changed():
+    global _listening
+    on = _wants_events()
+    if on != _listening:
+        _listening = on
+        turtleEventsOn(on)
+
+
+def _call(fun, *args):
+    try:
+        fun(*args)
+    except Terminator:
+        raise
+    except Exception:
+        # Like Tk: print the error and keep the program going.
+        traceback.print_exc()
+
+
+def _add(table, key, fun, add):
+    if fun is None:
+        table.pop(key, None)
+    elif add:
+        table.setdefault(key, []).append(fun)
+    else:
+        table[key] = [fun]
+
+
+def _hits(t, x, y):
+    """Whether (x, y) is on turtle t's shape."""
+    if not t._visible:
+        return False
+    if math.hypot(x - t._x, y - t._y) <= 8:
+        return True
+    poly = t.screen._shapes.get(t._shape, [])
+    if len(poly) < 3:
+        return False
+    a = math.radians(t._heading - 90)
+    c, s = math.cos(a), math.sin(a)
+    pts = [(t._x + px * t._stretch[0] * c - py * t._stretch[1] * s,
+            t._y + px * t._stretch[0] * s + py * t._stretch[1] * c) for px, py in poly]
+    inside = False
+    j = len(pts) - 1
+    for i in range(len(pts)):
+        xi, yi = pts[i]
+        xj, yj = pts[j]
+        if (yi > y) != (yj > y) and x < (xj - xi) * (y - yi) / (yj - yi) + xi:
+            inside = not inside
+        j = i
+    return inside
+
+
+def _dispatch(ev):
+    global _drag
+    kind = ev["type"]
+    if kind == "keydown" or kind == "keyup":
+        table = _keypress if kind == "keydown" else _keyrelease
+        # The handler for that key wins over a handler for any key, as in Tk.
+        fun = table.get(ev["key"]) or table.get(None)
+        if fun:
+            _call(fun)
+    elif kind == "down":
+        x, y, btn = ev["x"], ev["y"], ev["btn"]
+        for t in reversed(Screen()._turtles):
+            if _hits(t, x, y):
+                for fun in list(t._clicks.get(btn, [])):
+                    _call(fun, x, y)
+                if t._drags.get(btn) or t._releases.get(btn):
+                    _drag = (t, btn)
+                break
+        for fun in list(_screenclicks.get(btn, [])):
+            _call(fun, x, y)
+    elif kind == "move":
+        if _drag:
+            t, btn = _drag
+            for fun in list(t._drags.get(btn, [])):
+                _call(fun, ev["x"], ev["y"])
+    elif kind == "up":
+        if _drag:
+            t, btn = _drag
+            _drag = None
+            for fun in list(t._releases.get(btn, [])):
+                _call(fun, ev["x"], ev["y"])
+    elif kind == "timer":
+        fun = _timers.pop(ev["id"], None)
+        _changed()
+        if fun:
+            _call(fun)
+
+
+def _poll():
+    """Run the handlers for keys, clicks and timers that have arrived."""
+    global _polling
+    if _polling:
+        return
+    _polling = True
+    try:
+        for ev in json.loads(turtleTakeEvents()):
+            if _ended:
+                break
+            _dispatch(ev)
+    finally:
+        _polling = False
+    _flush()
 
 
 _noted = set()
@@ -264,7 +410,9 @@ class TurtleScreen:
         return 10 if delay is None else None
 
     def update(self):
-        _flush()
+        # Draw, wait for the page to show it (about one frame), then handle keys and clicks.
+        _wait(0)
+        _poll()
 
     # turtles
     def turtles(self):
@@ -275,7 +423,11 @@ class TurtleScreen:
         self._turtles = []
         self._bg = "white"
         self._tracing = 1
+        _keypress.clear()
+        _keyrelease.clear()
+        _screenclicks.clear()
         _send({"o": "clearscreen"})
+        _changed()
 
     clearscreen = clear
 
@@ -332,23 +484,57 @@ class TurtleScreen:
                 continue
             return value
 
-    # keyboard, mouse and timers: not available here
-    def _events(self, *args, **kwargs):
-        _note("Keyboard, mouse and timer events (onkey, onclick, ontimer, listen) don't work in the browser yet, so they're skipped.")
+    # keyboard, mouse and timers
+    def listen(self, xdummy=None, ydummy=None):
+        """Send the keyboard to the drawing."""
+        turtleListen()
 
-    listen = onkey = onkeypress = onkeyrelease = onclick = onscreenclick = ontimer = _events
+    def onkeyrelease(self, fun, key):
+        if fun is None:
+            _keyrelease.pop(_key(key), None)
+        else:
+            _keyrelease[_key(key)] = fun
+        _changed()
+
+    onkey = onkeyrelease
+
+    def onkeypress(self, fun, key=None):
+        if fun is None:
+            _keypress.pop(_key(key), None)
+        else:
+            _keypress[_key(key)] = fun
+        _changed()
+
+    def onclick(self, fun, btn=1, add=None):
+        _add(_screenclicks, btn, fun, add)
+        _changed()
+
+    onscreenclick = onclick
+
+    def ontimer(self, fun, t=0):
+        global _next_timer
+        _next_timer += 1
+        _timers[_next_timer] = fun
+        _changed()
+        turtleTimer(_next_timer, max(0, int(t)))
 
     # the end of a program
     def mainloop(self):
+        # The page keeps sending keys, clicks and timers after the program ends, until Stop.
         _flush()
 
     done = mainloop
 
     def exitonclick(self):
-        _flush()
+        self.onclick(lambda x, y: self.bye())
+        self.mainloop()
 
     def bye(self):
+        global _ended, _listening
         _flush()
+        _ended = True
+        _listening = False
+        turtleBye()
 
     def getcanvas(self):
         raise TurtleGraphicsError("getcanvas() isn't available in the browser")
@@ -386,6 +572,9 @@ class RawTurtle:
         self._shape = shape
         self._visible = visible
         self._stamps = []
+        self._clicks = {}
+        self._releases = {}
+        self._drags = {}
         self._init_state()
         _send({"o": "new", "id": self._id})
         self._sync()
@@ -773,11 +962,18 @@ class RawTurtle:
     def undobufferentries(self):
         return 0
 
-    # -- events (not here) --
+    # -- events: fun(x, y) when this turtle is clicked, released or dragged --
     def onclick(self, fun, btn=1, add=None):
-        self.screen._events()
+        _add(self._clicks, btn, fun, add)
+        _changed()
 
-    onrelease = ondrag = onclick
+    def onrelease(self, fun, btn=1, add=None):
+        _add(self._releases, btn, fun, add)
+        _changed()
+
+    def ondrag(self, fun, btn=1, add=None):
+        _add(self._drags, btn, fun, add)
+        _changed()
 
     # -- others --
     def clone(self):

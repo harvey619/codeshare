@@ -75,3 +75,83 @@ test("turtle animates at normal speed, module functions and star import work", a
   await expect.poll(() => pixel(page, 0, 40)).toEqual([0, 0, 0]);
   if (process.env.SHOT) await page.screenshot({ path: process.env.SHOT, fullPage: true });
 });
+
+/** Click the drawing at turtle coordinates (x, y). */
+async function clickAt(page: Page, x: number, y: number) {
+  const box = (await page.locator(".turtle-layer").last().boundingBox())!;
+  const scale = Math.min(box.width / 800, box.height / 600);
+  const left = box.x + (box.width - 800 * scale) / 2;
+  const top = box.y + (box.height - 600 * scale) / 2;
+  await page.mouse.click(left + (400 + x) * scale, top + (300 - y) * scale);
+}
+
+test("keys, clicks and timers keep working after mainloop(), until Stop", async ({ page }) => {
+  test.setTimeout(240_000);
+  await page.goto("/tools/python");
+  await runPython(
+    page,
+    [
+      "import turtle",
+      "t = turtle.Turtle()",
+      "t.speed(0)",
+      "t.pensize(3)",
+      "def up():",
+      "    t.setheading(90)",
+      "    t.forward(50)",
+      '    print("up", t.ycor())',
+      "def click(x, y):",
+      "    t.goto(x, y)",
+      '    print("click", round(x), round(y))',
+      "s = turtle.Screen()",
+      's.onkey(up, "Up")',
+      "s.onscreenclick(click)",
+      "s.listen()",
+      's.ontimer(lambda: print("timer"), 100)',
+      "turtle.mainloop()",
+    ].join("\n"),
+  );
+  const out = page.locator(".py-output .out");
+  await expect(out).toHaveText(["timer"], { timeout: 180_000 });
+  await expect(page.getByRole("button", { name: /Stop/ })).toBeVisible(); // still listening
+  await expect(page.locator(".turtle-stage")).toBeFocused(); // listen() gave it the keyboard
+  await page.keyboard.press("ArrowUp");
+  await expect(out).toHaveText(["timer", "up 50.0"]);
+  await clickAt(page, 100, -50);
+  await expect(out).toHaveText(["timer", "up 50.0", "click 100 -50"]);
+  await expect.poll(() => pixel(page, 50, 0)).toEqual([0, 0, 0]); // the line from (0, 50) to the click
+
+  // Stop ends it without reloading Python: the next run starts straight away.
+  await page.getByRole("button", { name: /Stop/ }).click();
+  await expect(page.getByRole("button", { name: /Run/ })).toBeVisible();
+  await runPython(page, 'print("again")');
+  await expect(out).toHaveText(["again"], { timeout: 5_000 });
+});
+
+test("a game loop with tracer(0) and update() reacts to key presses", async ({ page }) => {
+  test.setTimeout(240_000);
+  await page.goto("/tools/python");
+  await runPython(
+    page,
+    [
+      "import turtle",
+      "wn = turtle.Screen()",
+      "wn.tracer(0)",
+      "p = turtle.Turtle()",
+      'p.shape("square")',
+      "p.penup()",
+      "score = 0",
+      "def hit():",
+      "    global score",
+      "    score += 1",
+      'wn.onkeypress(hit, "space")',
+      "wn.listen()",
+      "while score < 3:",
+      "    p.setx(p.xcor() + 1)",
+      "    wn.update()",
+      'print("score", score)',
+    ].join("\n"),
+  );
+  await expect(page.locator(".turtle-stage")).toBeFocused({ timeout: 180_000 });
+  for (let i = 0; i < 3; i++) await page.keyboard.press("Space");
+  await expect(page.locator(".py-output .out")).toHaveText(["score 3"]);
+});

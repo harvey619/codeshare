@@ -7,6 +7,7 @@ export default function TurtleStage({ view, className = "" }: { view: TurtleView
   useEffect(() => {
     const el = host.current!;
     el.append(view.stage);
+    view.shown();
     return () => view.stage.remove();
   }, [view]);
   return <div ref={host} className={`turtle-host ${className}`} />;

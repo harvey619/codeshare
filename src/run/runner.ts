@@ -8,7 +8,7 @@ export const PYODIDE_VERSION = "0.29.5";
 const PYODIDE = `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full/`;
 
 import TURTLE_PY from "./turtle.py?raw";
-import type { TurtleOp } from "./turtleView";
+import type { TurtleInput, TurtleOp } from "./turtleView";
 
 export type RunFile = { name: string; text: string };
 export type OutLine = { stream: "log" | "warn" | "error" | "info" | "input"; text: string };
@@ -21,6 +21,10 @@ export type RunEvent =
   | { type: "turtle"; ops: TurtleOp[] }
   /** turtle is waiting until at most `pending` steps are left to draw; answer with turtleReady(). */
   | { type: "turtleWait"; pending: number }
+  /** The program called listen(): give the drawing the keyboard. */
+  | { type: "turtleListen" }
+  /** Whether the program has key, click or timer handlers (the drawing then sends events). */
+  | { type: "turtleEvents"; on: boolean }
   /** Whether this browser can pause Python for input() (JSPI), sent once Python is loaded. */
   | { type: "mode"; interactive: boolean }
   | { type: "done"; stopped?: boolean };
@@ -71,6 +75,46 @@ self.turtleWait = (pending) => new Promise((resolve) => {
   turtleReady = resolve;
   postMessage({ type: "turtleWait", pending });
 });
+// Keys, clicks and timers for turtle. Python takes them when it waits for the drawing; once the
+// program has ended with handlers set up, the worker stays "listening" and runs them itself.
+let turtleEvents = [];
+let timers = [];
+let listening = false;
+let bye = false;
+let chain = Promise.resolve();
+self.turtleTakeEvents = () => { const s = JSON.stringify(turtleEvents); turtleEvents = []; return s; };
+self.turtleTimer = (id, ms) => { timers.push(setTimeout(() => queueTurtle({ type: "timer", id }), ms)); };
+self.turtleBye = () => { bye = true; };
+self.turtleListen = () => postMessage({ type: "turtleListen" });
+self.turtleEventsOn = (on) => postMessage({ type: "turtleEvents", on: !!on });
+const queueTurtle = (ev) => {
+  turtleEvents.push(ev);
+  if (listening) chain = chain.then(handleEvents);
+};
+const TURTLE = "import sys\\n_t = sys.modules.get('turtle')\\n";
+const wantsEvents = () => {
+  try { return py.runPython(TURTLE + "_t is not None and _t._wants_events()") === true; } catch { return false; }
+};
+async function handleEvents() {
+  if (!listening) return;
+  try { await py.runPythonAsync(TURTLE + "if _t is not None: _t._poll()"); }
+  catch (err) { showError(err); }
+  flushTurtle();
+  if (bye || !wantsEvents()) stopListening(true);
+}
+function stopListening(done) {
+  listening = false;
+  timers.forEach(clearTimeout);
+  timers = [];
+  turtleEvents = [];
+  if (done) postMessage({ type: "done" });
+}
+// Hide Pyodide's own frames: keep the traceback from the student's code onwards.
+function showError(err) {
+  const msg = String(err && err.message || err);
+  const start = msg.indexOf('File "<exec>"');
+  postMessage({ type: "out", stream: "error", text: start > 0 ? "Traceback (most recent call last):\\n  " + msg.slice(start) : msg });
+}
 // input() pauses the program (like a terminal) in browsers with JSPI (Chrome, Edge).
 // Elsewhere it reads the lines typed in the answers box before Run.
 const SETUP = [
@@ -99,6 +143,17 @@ onmessage = async (e) => {
     if (turtleReady) { const r = turtleReady; turtleReady = null; r(); }
     return;
   }
+  if (e.data.type === "turtleEvent") {
+    queueTurtle(e.data.ev);
+    return;
+  }
+  // Stop while listening: end without throwing Python away (the host terminates us otherwise).
+  if (e.data.type === "halt") {
+    if (listening) { stopListening(false); postMessage({ type: "halted" }); }
+    return;
+  }
+  stopListening(false);
+  bye = false;
   const { code, stdin, files, turtle } = e.data;
   try {
     if (!py) {
@@ -148,11 +203,14 @@ onmessage = async (e) => {
     }
     flushTurtle();
     globals.destroy();
+    // Keys, clicks or timers set up: keep the program alive (like turtle's window) until Stop.
+    if (!bye && wantsEvents()) {
+      listening = true;
+      if (turtleEvents.length) chain = chain.then(handleEvents);
+      return;
+    }
   } catch (err) {
-    // Hide Pyodide's own frames: keep the traceback from the student's code onwards.
-    const msg = String(err && err.message || err);
-    const start = msg.indexOf('File "<exec>"');
-    postMessage({ type: "out", stream: "error", text: start > 0 ? "Traceback (most recent call last):\\n  " + msg.slice(start) : msg });
+    showError(err);
   }
   postMessage({ type: "done" });
 };`;
@@ -162,7 +220,7 @@ const make = (src) => new Worker(URL.createObjectURL(new Blob([src], { type: "te
 const send = (m) => parent.postMessage({ __run: 1, ...m }, "*");
 let js = null, py = null;
 const wire = (w) => {
-  w.onmessage = (e) => send(e.data);
+  w.onmessage = (e) => { if (e.data.type !== "halted") send(e.data); };
   w.onerror = (e) => { e.preventDefault(); send({ type: "out", stream: "error", text: e.message || "Worker error" }); send({ type: "done" }); };
   return w;
 };
@@ -171,8 +229,24 @@ onmessage = (e) => {
   const m = e.data;
   if (m.type === "js") { js && js.terminate(); js = wire(make(${JSON.stringify(JS_WORKER)})); js.postMessage(m); }
   if (m.type === "py") { py = py || wire(make(${JSON.stringify(PY_WORKER)})); py.postMessage(m); }
-  if ((m.type === "stdin" || m.type === "turtleReady") && py) py.postMessage(m);
-  if (m.type === "stop") { js && js.terminate(); py && py.terminate(); js = py = null; send({ type: "done", stopped: true }); }
+  if ((m.type === "stdin" || m.type === "turtleReady" || m.type === "turtleEvent") && py) py.postMessage(m);
+  if (m.type === "stop") {
+    js && js.terminate();
+    js = null;
+    if (!py) return send({ type: "done", stopped: true });
+    // A program that's only listening for keys can stop politely and keep Python loaded;
+    // one that's busy (a loop) is terminated.
+    const w = py;
+    let halted = false;
+    const onHalted = (ev) => { if (ev.data && ev.data.type === "halted") halted = true; };
+    w.addEventListener("message", onHalted);
+    w.postMessage({ type: "halt" });
+    setTimeout(() => {
+      w.removeEventListener("message", onHalted);
+      if (!halted) { w.terminate(); if (py === w) py = null; }
+      send({ type: "done", stopped: true });
+    }, 250);
+  }
 };
 send({ type: "ready" });
 </script>`;
@@ -221,6 +295,11 @@ export class Runner {
   /** Answer a paused input() call. */
   sendInput(text: string) {
     this.frame?.contentWindow?.postMessage({ type: "stdin", text }, "*");
+  }
+
+  /** A key, click or drag on the turtle drawing. */
+  turtleEvent(ev: TurtleInput) {
+    this.frame?.contentWindow?.postMessage({ type: "turtleEvent", ev }, "*");
   }
 
   /** The page has drawn enough: let a waiting turtle program carry on. */

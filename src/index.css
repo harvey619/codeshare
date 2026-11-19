@@ -598,3 +598,10 @@ button.chip { cursor: pointer; }
 .panel-size + .panel-close { margin-left: 0; }
 .turtle-host.tool { height: min(60vh, 520px); border: 1px solid var(--border); border-radius: 8px; }
 .turtle-host.tool .turtle-stage { border-radius: 8px; }
+.turtle-stage:focus { outline: none; }
+.turtle-stage.listening:focus-visible, .turtle-stage.listening:focus { box-shadow: inset 0 0 0 2px var(--accent); }
+.turtle-stage.listening:not(:focus)::after {
+  content: "Click the drawing to use the keyboard"; position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%);
+  padding: 4px 10px; border-radius: 999px; font-size: 12px; white-space: nowrap; pointer-events: none;
+  background: var(--accent); color: #fff;
+}

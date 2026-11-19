@@ -29,7 +29,7 @@ My first version sent the whole document on every keystroke, and the last write 
 - Text size buttons, download a file, copy code.
 
 - **Python `input()`** pauses the program and you type the answer in the output, like a terminal (Chrome/Edge; other browsers use an answers box filled in before Run).
-- **Python `turtle`** works like desktop Python: `import turtle` draws on a canvas under the code, animated at the usual speeds (src/run/turtle.py). Keyboard, mouse and timer events aren't supported yet.
+- **Python `turtle`** works like desktop Python: `import turtle` draws on a canvas under the code, animated at the usual speeds (src/run/turtle.py). Keys, clicks, drags and timers work too (`onkey`, `onclick`, `ondrag`, `ontimer`), including `while True: screen.update()` game loops (Chrome/Edge).
 - **harveycodes.com** opens the shared room `/now`. New rooms start with `notes.md`; Run shows Markdown formatted.
 
 ## Admin

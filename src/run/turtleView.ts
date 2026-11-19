@@ -20,6 +20,25 @@ export type TurtleOp =
   | { o: "size"; w: number; h: number }
   | { o: "title"; t: string };
 
+/** Keys and mouse on the drawing, sent to Python. Keys use Tk's names ("Up", "space", "a"). */
+export type TurtleInput =
+  | { type: "keydown" | "keyup"; key: string }
+  | { type: "down" | "move" | "up"; x: number; y: number; btn: number };
+
+const KEYSYMS: Record<string, string> = {
+  ArrowUp: "Up", ArrowDown: "Down", ArrowLeft: "Left", ArrowRight: "Right", " ": "space", Enter: "Return",
+  Escape: "Escape", Backspace: "BackSpace", Tab: "Tab", Delete: "Delete", Shift: "Shift_L", Control: "Control_L",
+  Alt: "Alt_L", Meta: "Meta_L", CapsLock: "Caps_Lock", Home: "Home", End: "End", PageUp: "Prior", PageDown: "Next",
+  Insert: "Insert",
+};
+
+/** A browser key as Tk names it, or null for keys turtle can't bind. */
+export function keysym(key: string): string | null {
+  if (KEYSYMS[key]) return KEYSYMS[key];
+  if (/^F\d{1,2}$/.test(key) || key.length === 1) return key;
+  return null;
+}
+
 type Look = { x: number; y: number; h: number; vis: boolean; poly: Pt[]; pc: string; fc: string; sw: number; sl: number; ow: number };
 type Item =
   | { k: "line"; id: number; x1: number; y1: number; x2: number; y2: number; c: string; w: number }
@@ -61,12 +80,24 @@ export class TurtleView {
   private waiters: { pending: number; done: () => void }[] = [];
   /** Called when the turtle starts or stops drawing. */
   private onBusy: (busy: boolean) => void;
+  private onInput: (ev: TurtleInput) => void;
   private busy = false;
+  private listening = false;
+  private wantFocus = false;
+  private pointer: { btn: number; moved: { x: number; y: number } | null } | null = null;
   title = "";
 
-  /** `onBusy` is told when the turtle starts or stops drawing. */
-  constructor(onBusy: (busy: boolean) => void = () => {}) {
+  /** `onBusy` is told when the turtle starts or stops drawing; `onInput` gets keys and clicks. */
+  constructor(onBusy: (busy: boolean) => void = () => {}, onInput: (ev: TurtleInput) => void = () => {}) {
     this.onBusy = onBusy;
+    this.onInput = onInput;
+    this.stage.tabIndex = 0;
+    this.stage.addEventListener("keydown", (e) => this.key(e, "keydown"));
+    this.stage.addEventListener("keyup", (e) => this.key(e, "keyup"));
+    this.top.addEventListener("pointerdown", (e) => this.mouse(e, "down"));
+    this.top.addEventListener("pointermove", (e) => this.mouse(e, "move"));
+    this.top.addEventListener("pointerup", (e) => this.mouse(e, "up"));
+    this.top.addEventListener("contextmenu", (e) => this.listening && e.preventDefault());
     this.stage.className = "turtle-stage";
     this.layer.className = "turtle-layer";
     this.top.className = "turtle-layer";
@@ -75,6 +106,71 @@ export class TurtleView {
     this.top.setAttribute("aria-label", "Turtle drawing");
     this.stage.append(this.layer, this.top);
     this.resize(800, 600);
+  }
+
+  /** Whether the program has key, click or timer handlers. */
+  setListening(on: boolean) {
+    this.listening = on;
+    this.stage.classList.toggle("listening", on);
+  }
+
+  /** listen(): give the drawing the keyboard. */
+  focus() {
+    // The stage may not be on the page yet: TurtleStage calls shown() once it is.
+    this.wantFocus = true;
+    if (this.stage.isConnected) this.stage.focus({ preventScroll: true });
+  }
+
+  /** The stage was just put on the page. */
+  shown() {
+    if (this.wantFocus) this.stage.focus({ preventScroll: true });
+  }
+
+  private key(e: KeyboardEvent, type: "keydown" | "keyup") {
+    if (!this.listening || e.metaKey || e.ctrlKey) return;
+    const key = keysym(e.key);
+    if (!key) return;
+    e.preventDefault(); // arrows and space would scroll the page
+    this.onInput({ type, key });
+  }
+
+  /** Turtle coordinates of a pointer event (the canvas is letterboxed with object-fit: contain). */
+  private where(e: PointerEvent) {
+    const r = this.top.getBoundingClientRect();
+    const scale = Math.min(r.width / this.w, r.height / this.h);
+    const left = r.left + (r.width - this.w * scale) / 2;
+    const top = r.top + (r.height - this.h * scale) / 2;
+    return {
+      x: Math.round(((e.clientX - left) / scale - this.w / 2) * 100) / 100,
+      y: Math.round((this.h / 2 - (e.clientY - top) / scale) * 100) / 100,
+    };
+  }
+
+  private mouse(e: PointerEvent, type: "down" | "move" | "up") {
+    if (!this.listening) return;
+    const { x, y } = this.where(e);
+    if (type === "down") {
+      const btn = e.button === 1 ? 2 : e.button === 2 ? 3 : 1;
+      this.pointer = { btn, moved: null };
+      this.top.setPointerCapture(e.pointerId);
+      this.focus();
+      this.onInput({ type, x, y, btn });
+    } else if (this.pointer) {
+      const p = this.pointer;
+      if (type === "up") {
+        this.pointer = null;
+        this.onInput({ type, x, y, btn: p.btn });
+      } else {
+        // At most one drag event per frame.
+        if (!p.moved) {
+          requestAnimationFrame(() => {
+            if (this.pointer === p && p.moved) this.onInput({ type: "move", ...p.moved, btn: p.btn });
+            p.moved = null;
+          });
+        }
+        p.moved = { x, y };
+      }
+    }
   }
 
   /** Start over for a new run. */
@@ -86,6 +182,9 @@ export class TurtleView {
     this.fillAt.clear();
     this.bg = "white";
     this.title = "";
+    this.pointer = null;
+    this.wantFocus = false;
+    this.setListening(false);
     this.resize(800, 600);
     this.release(true);
     this.setBusy(false);
@@ -93,6 +192,7 @@ export class TurtleView {
 
   /** Stop drawing: what's drawn stays, the rest is dropped. */
   stop() {
+    this.setListening(false);
     if (this.anim) this.finish(this.anim);
     this.anim = null;
     this.queue = [];

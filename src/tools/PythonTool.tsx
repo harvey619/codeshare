@@ -31,9 +31,11 @@ export default function PythonTool() {
   const [running, setRunning] = useState(false);
   const [waiting, setWaiting] = useState<{ prompt: string } | null>(null);
   const [interactive, setInteractive] = useState<boolean | null>(null);
-  const [turtleOn, setTurtleOn] = useState(false);
+  // Turtle drawings: the view is made on first use; `turtleOn` shows it.
+  const turtle = useRef<TurtleView | null>(null);
+  const [turtleOn, setTurtleOn] = useState<TurtleView | null>(null);
   const [turtleBusy, setTurtleBusy] = useState(false);
-  const [turtle] = useState(() => new TurtleView(setTurtleBusy));
+  const getTurtle = useCallback(() => (turtle.current ??= new TurtleView(setTurtleBusy, (ev) => runner.current?.turtleEvent(ev))), []);
 
   useEffect(() => {
     const dark = document.documentElement.dataset.theme !== "light";
@@ -58,21 +60,26 @@ export default function PythonTool() {
     else if (e.type === "input") setWaiting({ prompt: e.prompt });
     else if (e.type === "mode") setInteractive(e.interactive);
     else if (e.type === "turtle") {
-      turtle.push(e.ops);
-      setTurtleOn(true);
-    } else if (e.type === "turtleWait") turtle.whenPending(e.pending).then(() => runner.current?.turtleReady());
+      getTurtle().push(e.ops);
+      setTurtleOn(getTurtle());
+    } else if (e.type === "turtleWait") getTurtle().whenPending(e.pending).then(() => runner.current?.turtleReady());
+    else if (e.type === "turtleListen") getTurtle().focus();
+    else if (e.type === "turtleEvents") {
+      getTurtle().setListening(e.on);
+      setTurtleOn(getTurtle());
+    }
     else {
       setRunning(false);
       setWaiting(null);
       setStatus(e.stopped ? "Stopped." : null);
     }
-  }, [turtle]);
+  }, [getTurtle]);
 
   function run() {
     runner.current ??= new Runner(onEvent);
     setLines([]);
-    turtle.reset();
-    setTurtleOn(false);
+    turtle.current?.reset();
+    setTurtleOn(null);
     setWaiting(null);
     setRunning(true);
     setStatus("Running…");
@@ -101,7 +108,7 @@ export default function PythonTool() {
             className="btn stop"
             onClick={() => {
               runner.current?.stop();
-              turtle.stop();
+              turtle.current?.stop();
             }}
           >
             ■ Stop
@@ -116,7 +123,7 @@ export default function PythonTool() {
       {interactive === false && (
         <textarea className="stdin" value={stdin} onChange={(e) => setStdin(e.target.value)} rows={1} placeholder="Answers for input(): one per line, typed before you press Run" aria-label="Answers" />
       )}
-      {turtleOn && <TurtleStage view={turtle} className="tool" />}
+      {turtleOn && <TurtleStage view={turtleOn} className="tool" />}
       <div className="py-output" aria-label="Output" aria-live="polite">
         <Output
           lines={lines}
