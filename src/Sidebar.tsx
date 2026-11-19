@@ -8,7 +8,8 @@ type Props = {
   images: ImageMeta[];
   files: FileMeta[];
   error: string | null;
-  busy: boolean;
+  /** What's uploading right now (with progress), or null. */
+  busy: string | null;
   onPick: (list: File[]) => void;
 };
 
@@ -21,7 +22,7 @@ export default function Sidebar({ base, readOnly, images, files, error, busy, on
   return (
     <aside className="sidebar">
       {!readOnly && (
-        <button className="btn small" onClick={() => input.current?.click()} disabled={busy}>
+        <button className="btn small" onClick={() => input.current?.click()} disabled={!!busy}>
           + Add files
         </button>
       )}
@@ -35,7 +36,7 @@ export default function Sidebar({ base, readOnly, images, files, error, busy, on
           e.target.value = "";
         }}
       />
-      {busy && <p className="side-note">Uploading…</p>}
+      {busy && <p className="side-note" role="status">{busy}</p>}
       {error && <p className="side-note error">{error}</p>}
       {empty && !busy && <p className="side-note">{readOnly ? "No images or files yet" : "Paste, drop or add images and files"}</p>}
 

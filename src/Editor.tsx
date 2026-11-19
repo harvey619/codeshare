@@ -111,7 +111,7 @@ export default function Editor({ room, viewToken, dark }: Props) {
   const [images, setImages] = useState<ImageMeta[]>([]);
   const [files, setFiles] = useState<FileMeta[]>([]);
   const [uploadError, setUploadError] = useState<string | null>(null);
-  const [uploading, setUploading] = useState(false);
+  const [uploading, setUploading] = useState<string | null>(null);
   const uploadRef = useRef<(list: File[]) => void>(() => {});
 
   const [zoom, setZoom] = useState(loadZoom);
@@ -277,22 +277,24 @@ export default function Editor({ room, viewToken, dark }: Props) {
     async function upload(list: File[]) {
       if (list.length === 0 || !room) return;
       setUploadError(null);
-      setUploading(true);
+      setUploading("Uploading…");
       try {
         for (const file of list) {
+          setUploading(`Uploading ${file.name || "file"}…`);
           if (isAcceptedImage(file)) {
             const { blob, w, h } = await compressImage(file, LIMITS.imageBytes);
             const id = await uploadImage(room, blob);
             yimages.push([{ id, name: file.name || "pasted image", w, h, size: blob.size, addedAt: Date.now() }]);
           } else {
-            if (file.size > LIMITS.fileBytes) throw new Error(`${file.name} is over 10 MB`);
-            yfiles.push([await uploadFile(room, file)]);
+            if (file.size > LIMITS.fileBytes) throw new Error(`${file.name} is over ${LIMITS.fileBytes / 1e6} MB`);
+            const label = file.name || "file";
+            yfiles.push([await uploadFile(room, file, (f) => setUploading(`Uploading ${label}… ${Math.round(f * 100)}%`))]);
           }
         }
       } catch (err) {
         setUploadError(err instanceof Error ? err.message : "Upload failed");
       } finally {
-        setUploading(false);
+        setUploading(null);
       }
     }
     uploadRef.current = upload;

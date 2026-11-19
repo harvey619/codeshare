@@ -3,7 +3,8 @@ export const LIMITS = {
   msgsPerSec: 30, msgBurst: 60, connsPerRoom: 50,
   imageBytes: 1_500_000, imagesPerRoom: 20, uploadsPerMin: 10,
   roomTtlMs: 14 * 24 * 60 * 60 * 1000,
-  fileBytes: 10_000_000, roomFileBytes: 25_000_000, fileChunkBytes: 1_500_000,
+  // 100 MB is also the largest request body Cloudflare accepts on the Free plan.
+  fileBytes: 100_000_000, roomFileBytes: 300_000_000, fileChunkBytes: 1_500_000,
   historyEveryMs: 5 * 60_000, historyKeep: 30, explainChars: 12_000,
 } as const;
 

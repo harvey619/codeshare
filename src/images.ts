@@ -47,15 +47,28 @@ export async function uploadImage(room: string, blob: Blob): Promise<string> {
 }
 export type FileMeta = { id: string; name: string; size: number; addedAt: number };
 
-export async function uploadFile(room: string, file: File): Promise<FileMeta> {
-  const res = await fetch(`/api/rooms/${room}/files`, {
-    method: "POST",
-    body: file,
-    headers: { "X-File-Name": encodeURIComponent(file.name || "file") },
+/** Upload with XHR rather than fetch: only XHR reports upload progress (big files take a while). */
+export function uploadFile(room: string, file: File, onProgress?: (fraction: number) => void): Promise<FileMeta> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `/api/rooms/${room}/files`);
+    xhr.setRequestHeader("X-File-Name", encodeURIComponent(file.name || "file"));
+    xhr.upload.onprogress = (e) => e.lengthComputable && onProgress?.(e.loaded / e.total);
+    xhr.onerror = () => reject(new Error("Upload failed: check your connection"));
+    xhr.onload = () => {
+      let data: { id?: string; name?: string; size?: number; error?: string } = {};
+      try {
+        data = JSON.parse(xhr.responseText);
+      } catch {
+        // Cloudflare's own error pages aren't JSON
+      }
+      if (xhr.status < 200 || xhr.status >= 300) {
+        return reject(new Error(data.error ?? (xhr.status === 413 ? "File too large" : "Upload failed")));
+      }
+      resolve({ id: data.id!, name: data.name!, size: data.size!, addedAt: Date.now() });
+    };
+    xhr.send(file);
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error ?? "Upload failed");
-  return { id: data.id, name: data.name, size: data.size, addedAt: Date.now() };
 }
 
 export function formatSize(bytes: number): string {

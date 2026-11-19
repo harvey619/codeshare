@@ -29,10 +29,25 @@ test("uploaded file appears for others and downloads intact", async ({ browser }
   expect(Buffer.compare(await res.body(), bytes)).toBe(0);
 });
 
-test("files over 10 MB are refused", async ({ request }) => {
+test("files over 100 MB are refused", async ({ request }) => {
   const res = await request.post(`/api/rooms/e2e-${Date.now()}-${Math.random().toString(36).slice(2, 8)}/files`, {
-    data: Buffer.alloc(11_000_000, 1),
+    data: Buffer.alloc(100_000_001, 1),
     headers: { "X-File-Name": "big.bin" },
   });
   expect(res.status()).toBe(413);
+});
+
+test("a big file (40 MB) uploads and downloads intact", async ({ request }) => {
+  test.setTimeout(240_000);
+  const room = `e2e-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const bytes = Buffer.alloc(40_000_000);
+  for (let i = 0; i < bytes.length; i += 4096) bytes[i] = (i / 4096) & 0xff;
+  const up = await request.post(`/api/rooms/${room}/files`, { data: bytes, headers: { "X-File-Name": "big.zip" } });
+  expect(up.status()).toBe(201);
+  const { id, size } = await up.json();
+  expect(size).toBe(bytes.length);
+  const down = await request.get(`/api/rooms/${room}/files/${id}`);
+  expect(down.status()).toBe(200);
+  expect(down.headers()["content-length"]).toBe(String(bytes.length));
+  expect(Buffer.compare(await down.body(), bytes)).toBe(0);
 });

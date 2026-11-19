@@ -578,5 +578,6 @@ button.chip { cursor: pointer; }
 .admin-table tr.live td:first-child a { font-weight: 600; }
 .online { color: var(--live); font-weight: 600; }
 .admin-actions { display: flex; gap: 6px; justify-content: flex-end; }
+.admin-filter { flex: none; appearance: none; -webkit-appearance: none; font-size: 14px; font-family: inherit; }
 .btn.danger { color: var(--offline); border-color: color-mix(in srgb, var(--offline) 50%, var(--border)); }
 .btn.danger:hover { background: var(--offline); color: #fff; }

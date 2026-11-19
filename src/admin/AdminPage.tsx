@@ -160,7 +160,7 @@ export default function AdminPage() {
         </div>
       )}
 
-      <input className="code-input" type="search" placeholder="Filter rooms" value={filter} onChange={(e) => setFilter(e.target.value)} aria-label="Filter rooms" />
+      <input className="code-input admin-filter" type="search" placeholder="Filter rooms" value={filter} onChange={(e) => setFilter(e.target.value)} aria-label="Filter rooms" />
 
       {data && rooms.length === 0 && <p className="side-note">No rooms yet. Rooms appear here once someone edits or joins them.</p>}
       {rooms.length > 0 && (
@@ -180,9 +180,11 @@ export default function AdminPage() {
                   <td>{r.files + r.images > 0 ? `${r.images} img, ${r.files} files` : "–"}</td>
                   <td>{ago(r.lastEdit)}</td>
                   <td>{until(r.expires)}</td>
-                  <td className="admin-actions">
-                    <button className="btn small" disabled={r.people === 0 || !!busy} onClick={() => act(r, "end")}>End</button>
-                    <button className="btn small danger" disabled={!!busy} onClick={() => act(r, "delete")}>Delete</button>
+                  <td>
+                    <div className="admin-actions">
+                      <button className="btn small" disabled={r.people === 0 || !!busy} onClick={() => act(r, "end")}>End</button>
+                      <button className="btn small danger" disabled={!!busy} onClick={() => act(r, "delete")}>Delete</button>
+                    </div>
                   </td>
                 </tr>
               ))}

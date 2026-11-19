@@ -47,13 +47,16 @@ export class Room extends YServer<Env> {
       await directory.remove(this.name);
       return;
     }
+    const expires = await this.ctx.storage.getAlarm();
     await directory.report(this.name, {
       size: sql.databaseSize,
       people,
       images: count("images"),
       files: count("files"),
-      lastEdit: this.lastEdit,
-      expires: await this.ctx.storage.getAlarm(),
+      // Every save pushes the expiry alarm to now + TTL, so the alarm also tells us when the
+      // room was last saved, even after the room slept and lost `lastEdit` from memory.
+      lastEdit: this.lastEdit ?? (expires ? expires - LIMITS.roomTtlMs : null),
+      expires,
     });
   }
 
@@ -154,6 +157,8 @@ export class Room extends YServer<Env> {
 
   async onLoad() {
     this.createTables();
+    // Pieces of an upload that was cut off when the room last shut down (no files row yet).
+    this.ctx.storage.sql.exec("DELETE FROM file_chunks WHERE file_id NOT IN (SELECT id FROM files)");
     const row = this.ctx.storage.sql.exec("SELECT state FROM snapshot WHERE id = 1").toArray()[0];
     if (row) {
       Y.applyUpdate(this.document, new Uint8Array(row.state as ArrayBuffer));
@@ -338,14 +343,19 @@ export class Room extends YServer<Env> {
     if (request.method === "GET" && id) {
       const file = sql.exec("SELECT name, size FROM files WHERE id = ?", id).toArray()[0];
       if (!file) return json({ error: "not found" }, 404);
-      const out = new Uint8Array(file.size as number);
-      let offset = 0;
-      for (const chunk of sql.exec("SELECT bytes FROM file_chunks WHERE file_id = ? ORDER BY idx", id)) {
-        const part = new Uint8Array(chunk.bytes as ArrayBuffer);
-        out.set(part, offset);
-        offset += part.byteLength;
-      }
-      return new Response(out, {
+      // Stream one stored piece at a time: a 100 MB file doesn't fit in memory at once.
+      const { readable, writable } = new FixedLengthStream(file.size as number);
+      const pump = async () => {
+        const writer = writable.getWriter();
+        for (let idx = 0; ; idx++) {
+          const row = sql.exec("SELECT bytes FROM file_chunks WHERE file_id = ? AND idx = ?", id, idx).toArray()[0];
+          if (!row) break;
+          await writer.write(new Uint8Array(row.bytes as ArrayBuffer));
+        }
+        await writer.close();
+      };
+      pump().catch((err) => console.error("file download failed", err));
+      return new Response(readable, {
         headers: {
           "Content-Type": "application/octet-stream",
           "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(file.name as string)}`,
@@ -358,33 +368,59 @@ export class Room extends YServer<Env> {
     if (request.method === "POST" && !id) {
       if (!this.uploads.take()) return json({ error: "Too many uploads, wait a minute" }, 429);
 
+      const tooBig = `File too large (${LIMITS.fileBytes / 1e6} MB max)`;
+      const noSpace = `This room is out of file space (${LIMITS.roomFileBytes / 1e6} MB)`;
       const declared = Number(request.headers.get("Content-Length") ?? 0);
-      if (declared > LIMITS.fileBytes) return tooLarge(request, "File too large (10 MB max)");
-      const bytes = new Uint8Array(await request.arrayBuffer());
-      if (bytes.byteLength > LIMITS.fileBytes) return json({ error: "File too large (10 MB max)" }, 413);
-      if (bytes.byteLength === 0) return json({ error: "File is empty" }, 400);
-
+      if (declared > LIMITS.fileBytes) return tooLarge(request, tooBig);
       const used = sql.exec("SELECT COALESCE(SUM(size), 0) AS n FROM files").one().n as number;
-      if (used + bytes.byteLength > LIMITS.roomFileBytes) {
-        return json({ error: "This room is out of file space (25 MB)" }, 413);
-      }
+      const room = LIMITS.roomFileBytes - used;
+      if (declared > room) return tooLarge(request, noSpace);
+      if (!request.body) return json({ error: "File is empty" }, 400);
 
+      // Store the upload piece by piece as it arrives, so a big file never sits in memory whole.
+      // The files row is added last: until then the pieces are invisible.
       const name = sanitizeFileName(request.headers.get("X-File-Name"));
       const newId = crypto.randomUUID();
-      this.ctx.storage.transactionSync(() => {
-        sql.exec(
-          "INSERT INTO files (id, name, size, created_at) VALUES (?, ?, ?, ?)",
-          newId, name, bytes.byteLength, Date.now(),
-        );
-        for (let i = 0, idx = 0; i < bytes.byteLength; i += LIMITS.fileChunkBytes, idx++) {
-          sql.exec(
-            "INSERT INTO file_chunks (file_id, idx, bytes) VALUES (?, ?, ?)",
-            newId, idx, bytes.subarray(i, i + LIMITS.fileChunkBytes),
-          );
+      const buf = new Uint8Array(LIMITS.fileChunkBytes);
+      let fill = 0;
+      let size = 0;
+      let idx = 0;
+      const put = (bytes: Uint8Array) =>
+        sql.exec("INSERT INTO file_chunks (file_id, idx, bytes) VALUES (?, ?, ?)", newId, idx++, bytes);
+      const discard = () => sql.exec("DELETE FROM file_chunks WHERE file_id = ?", newId);
+      const reader = request.body.getReader();
+      try {
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          size += value.byteLength;
+          if (size > LIMITS.fileBytes || size > room) {
+            await reader.cancel();
+            discard();
+            return json({ error: size > LIMITS.fileBytes ? tooBig : noSpace }, 413);
+          }
+          for (let at = 0; at < value.byteLength; ) {
+            const n = Math.min(buf.byteLength - fill, value.byteLength - at);
+            buf.set(value.subarray(at, at + n), fill);
+            fill += n;
+            at += n;
+            if (fill === buf.byteLength) {
+              put(buf.slice());
+              fill = 0;
+            }
+          }
         }
-      });
+        if (fill > 0) put(buf.slice(0, fill));
+      } catch (err) {
+        discard();
+        console.error("file upload failed", err);
+        return json({ error: "Upload interrupted, try again" }, 400);
+      }
+      if (size === 0) return json({ error: "File is empty" }, 400);
+
+      sql.exec("INSERT INTO files (id, name, size, created_at) VALUES (?, ?, ?, ?)", newId, name, size, Date.now());
       this.reportSoon();
-      return json({ id: newId, name, size: bytes.byteLength }, 201);
+      return json({ id: newId, name, size }, 201);
     }
 
     return json({ error: "method not allowed" }, 405);

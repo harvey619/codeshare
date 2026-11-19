@@ -61,6 +61,6 @@ npm run deploy     # deploy to Cloudflare
 
 ## Limits
 
-200k characters per doc, 20 images per room (≤1.5 MB each, PNG/JPEG/WebP/GIF), files up to 10 MB each (25 MB per room, always downloaded, never opened inline), 50 people per room, and message rate limits. Rooms expire 2 weeks after the last edit.
+200k characters per doc, 20 images per room (≤1.5 MB each, PNG/JPEG/WebP/GIF), files up to 100 MB each (300 MB per room, always downloaded, never opened inline), 50 people per room, and message rate limits. Rooms expire 2 weeks after the last edit.
 
 Design notes: [docs/design.md](docs/design.md)
