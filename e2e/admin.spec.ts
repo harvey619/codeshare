@@ -13,9 +13,11 @@ function adminToken() {
 }
 
 test("admin API refuses without the token", async ({ request }) => {
-  expect((await request.get("/api/admin/rooms")).status()).toBe(401);
-  expect((await request.get("/api/admin/rooms", { headers: { Authorization: "Bearer wrong" } })).status()).toBe(401);
-  expect((await request.post("/api/admin/rooms/now/delete")).status()).toBe(401);
+  // 401 = wrong token; 503 = no ADMIN_TOKEN secret set yet (also refused).
+  const refused = [401, 503];
+  expect(refused).toContain((await request.get("/api/admin/rooms")).status());
+  expect(refused).toContain((await request.get("/api/admin/rooms", { headers: { Authorization: "Bearer wrong" } })).status());
+  expect(refused).toContain((await request.post("/api/admin/rooms/now/delete")).status());
   // Internal room paths aren't routed to rooms at all (the site just serves its page).
   const internal = await request.post("/internal/admin/delete");
   expect(await internal.text()).not.toContain('"ok"');
