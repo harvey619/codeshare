@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { basicSetup } from "codemirror";
 import { EditorState } from "@codemirror/state";
-import { EditorView } from "@codemirror/view";
+import { EditorView, keymap } from "@codemirror/view";
+import { indentWithTab } from "@codemirror/commands";
 import { python } from "@codemirror/lang-python";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { Runner, type OutLine, type RunEvent } from "../run/runner";
@@ -9,15 +10,10 @@ import { downloadBlob, useStored } from "./util";
 import Output from "../run/Output";
 import TurtleStage from "../run/TurtleStage";
 import { TurtleView } from "../run/turtleView";
+import { PY_EXAMPLES } from "./pyExamples";
 
-const SAMPLE = `# Press Run (or Ctrl/Cmd + Enter)
-name = input("What's your name? ")
-for i in range(1, 4):
-    print(f"Hello {name}, this is line {i}")
-
-squares = [n * n for n in range(6)]
-print("Squares:", squares)
-`;
+const SAMPLE = PY_EXAMPLES[0].code;
+const GROUPS = [...new Set(PY_EXAMPLES.map((e) => e.group))];
 
 export default function PythonTool() {
   const host = useRef<HTMLDivElement>(null);
@@ -43,7 +39,7 @@ export default function PythonTool() {
       parent: host.current!,
       state: EditorState.create({
         doc: initial.current,
-        extensions: [basicSetup, python(), dark ? oneDark : [], EditorView.updateListener.of((u) => u.docChanged && setSaved(u.state.doc.toString()))],
+        extensions: [basicSetup, keymap.of([indentWithTab]), python(), dark ? oneDark : [], EditorView.updateListener.of((u) => u.docChanged && setSaved(u.state.doc.toString()))],
       }),
     });
     view.current = editor;
@@ -75,6 +71,17 @@ export default function PythonTool() {
     }
   }, [getTurtle]);
 
+  function loadExample(id: string) {
+    const ex = PY_EXAMPLES.find((e) => e.id === id);
+    const editor = view.current;
+    if (!ex || !editor) return;
+    const current = editor.state.doc.toString();
+    const isExample = !current.trim() || PY_EXAMPLES.some((e) => e.code === current);
+    if (!isExample && !confirm(`Replace your code with the "${ex.name}" example?`)) return;
+    editor.dispatch({ changes: { from: 0, to: editor.state.doc.length, insert: ex.code } });
+    editor.focus();
+  }
+
   function run() {
     runner.current ??= new Runner(onEvent);
     setLines([]);
@@ -101,7 +108,7 @@ export default function PythonTool() {
   }, []);
 
   return (
-    <div className="stack">
+    <div className="py-tool">
       <div className="json-bar">
         {running || turtleBusy ? (
           <button
@@ -114,28 +121,44 @@ export default function PythonTool() {
             ■ Stop
           </button>
         ) : (
-          <button className="btn run" onClick={run}>▶ Run</button>
+          <button className="btn run" onClick={run} title="Run (Ctrl/Cmd + Enter)">▶ Run</button>
         )}
+        <select className="code-input py-examples" value="" onChange={(e) => loadExample(e.target.value)} aria-label="Examples">
+          <option value="" disabled>Examples…</option>
+          {GROUPS.map((g) => (
+            <optgroup key={g} label={g}>
+              {PY_EXAMPLES.filter((e) => e.group === g).map((e) => (
+                <option key={e.id} value={e.id}>{e.name}</option>
+              ))}
+            </optgroup>
+          ))}
+        </select>
         <button className="btn" onClick={() => downloadBlob(new Blob([view.current?.state.doc.toString() ?? ""], { type: "text/plain" }), "main.py")}>Download .py</button>
-        <span className="side-note">Runs in your browser with Pyodide. turtle, numpy, pandas and other common packages work when you import them.</span>
+        <span className="side-note">Runs in your browser. Your code is saved in this browser. turtle, numpy and pandas work when you import them.</span>
       </div>
-      <div ref={host} className="py-editor" />
-      {interactive === false && (
-        <textarea className="stdin" value={stdin} onChange={(e) => setStdin(e.target.value)} rows={1} placeholder="Answers for input(): one per line, typed before you press Run" aria-label="Answers" />
-      )}
-      {turtleOn && <TurtleStage view={turtleOn} className="tool" />}
-      <div className="py-output" aria-label="Output" aria-live="polite">
-        <Output
-          lines={lines}
-          status={status}
-          waiting={waiting}
-          empty="Output appears here."
-          onAnswer={(text) => {
-            setLines((prev) => [...prev, { stream: "input", text: (waiting?.prompt ?? "") + text }]);
-            setWaiting(null);
-            runner.current?.sendInput(text);
-          }}
-        />
+      <div className="py-split">
+        <div className="py-left">
+          <div ref={host} className="py-editor" />
+          {interactive === false && (
+            <textarea className="stdin" value={stdin} onChange={(e) => setStdin(e.target.value)} rows={1} placeholder="Answers for input(): one per line, typed before you press Run" aria-label="Answers" />
+          )}
+        </div>
+        <div className={`py-right${turtleOn ? " with-turtle" : ""}`}>
+          {turtleOn && <TurtleStage view={turtleOn} className="tool" />}
+          <div className="py-output" aria-label="Output" aria-live="polite">
+            <Output
+              lines={lines}
+              status={status}
+              waiting={waiting}
+              empty={turtleOn ? "" : "Output appears here."}
+              onAnswer={(text) => {
+                setLines((prev) => [...prev, { stream: "input", text: (waiting?.prompt ?? "") + text }]);
+                setWaiting(null);
+                runner.current?.sendInput(text);
+              }}
+            />
+          </div>
+        </div>
       </div>
     </div>
   );

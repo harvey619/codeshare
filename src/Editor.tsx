@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { basicSetup } from "codemirror";
 import { EditorState, Compartment } from "@codemirror/state";
 import type { Extension } from "@codemirror/state";
-import { EditorView } from "@codemirror/view";
+import { EditorView, keymap } from "@codemirror/view";
+import { indentWithTab } from "@codemirror/commands";
 import { javascript } from "@codemirror/lang-javascript";
 import { python } from "@codemirror/lang-python";
 import { html } from "@codemirror/lang-html";
@@ -175,6 +176,7 @@ export default function Editor({ room, viewToken, dark }: Props) {
         doc: ytext.toString(),
         extensions: [
           basicSetup,
+          keymap.of([indentWithTab]),
           sizeLimit,
           language.current.of(LANG_EXT[languageOf(nameOf(id))]()),
           theme.current.of(darkRef.current ? oneDark : []),

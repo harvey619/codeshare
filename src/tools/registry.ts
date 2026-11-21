@@ -21,7 +21,7 @@ export const TOOLS: Tool[] = [
   { slug: "whiteboard", name: "Whiteboard", category: "Teach", icon: "✏️", wide: true,
     blurb: "Sketch diagrams and notes in a friendly hand-drawn style. Great on a projector.",
     keywords: "draw notes diagram excalidraw sketch explain board canvas", Component: lazy(() => import("./WhiteboardTool")) },
-  { slug: "python", name: "Python playground", category: "Teach", icon: "🐍",
+  { slug: "python", name: "Python playground", category: "Teach", icon: "🐍", wide: true,
     blurb: "Write and run Python right here. Nothing to install.",
     keywords: "run code interpreter pyodide repl script", Component: lazy(() => import("./PythonTool")) },
   { slug: "picker", name: "Class picker & timer", category: "Teach", icon: "🎲",

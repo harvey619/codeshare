@@ -716,7 +716,7 @@ class RawTurtle:
 
     def towards(self, x, y=None):
         if y is None:
-            x, y = x
+            x, y = x.pos() if isinstance(x, RawTurtle) else x
         angle = math.degrees(math.atan2(y - self._y, x - self._x)) % 360.0
         if self.screen._mode == "logo":
             angle = (90.0 - angle) % 360.0
@@ -724,7 +724,7 @@ class RawTurtle:
 
     def distance(self, x, y=None):
         if y is None:
-            x, y = x
+            x, y = x.pos() if isinstance(x, RawTurtle) else x
         return math.hypot(x - self._x, y - self._y)
 
     def degrees(self, fullcircle=360.0):

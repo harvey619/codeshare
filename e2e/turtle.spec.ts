@@ -155,3 +155,48 @@ test("a game loop with tracer(0) and update() reacts to key presses", async ({ p
   for (let i = 0; i < 3; i++) await page.keyboard.press("Space");
   await expect(page.locator(".py-output .out")).toHaveText(["score 3"]);
 });
+
+test("playground: code beside output, Tab keys, remembered code", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto("/tools/python");
+  const editor = (await page.locator(".py-editor").boundingBox())!;
+  const output = (await page.locator(".py-output").boundingBox())!;
+  expect(output.x).toBeGreaterThan(editor.x + editor.width - 1); // output on the right
+  expect(editor.height).toBeGreaterThan(450);
+
+  await page.locator(".py-editor .cm-content").click();
+  await page.keyboard.press("ControlOrMeta+a");
+  await page.keyboard.insertText("if True:\nx = 1");
+  await page.keyboard.press("Home");
+  await page.keyboard.press("Tab");
+  await expect(page.locator(".py-editor .cm-line").nth(1)).toHaveText("    x = 1");
+  await page.keyboard.press("Shift+Tab");
+  await expect(page.locator(".py-editor .cm-line").nth(1)).toHaveText("x = 1");
+
+  await page.reload();
+  await expect(page.locator(".py-editor .cm-line").nth(1)).toHaveText("x = 1");
+});
+
+test("every turtle example runs without errors", async ({ page }) => {
+  test.setTimeout(300_000);
+  await page.goto("/tools/python");
+  const { PY_EXAMPLES } = await import("../src/tools/pyExamples");
+  page.on("dialog", (d) => d.accept());
+  for (const ex of PY_EXAMPLES.filter((e) => e.group !== "Basics")) {
+    await page.getByLabel("Examples").selectOption(ex.id);
+    await expect(page.locator(".py-editor .cm-content")).toContainText(ex.code.split("\n")[0]);
+    await page.getByRole("button", { name: /Run/ }).click();
+    await expect(page.locator(".turtle-stage")).toBeVisible({ timeout: 180_000 });
+    await page.waitForTimeout(800);
+    // Play a little: click the drawing, then keys (Snake heads up into the food).
+    await page.locator(".turtle-stage").click();
+    for (const key of ["ArrowUp", "w", "Space", "ArrowRight"]) {
+      await page.keyboard.press(key);
+      await page.waitForTimeout(500);
+    }
+    await expect(page.locator(".py-output"), ex.name).not.toContainText(/Error|Traceback/);
+    const stop = page.getByRole("button", { name: /Stop/ });
+    if (await stop.isVisible()) await stop.click();
+    await expect(page.getByRole("button", { name: /Run/ })).toBeVisible({ timeout: 10_000 });
+  }
+});
