@@ -631,6 +631,8 @@ body.py-resizing iframe, body.py-resizing .turtle-stage { pointer-events: none; 
 /* ---- Admin ---- */
 .tools.admin { max-width: 1040px; display: flex; flex-direction: column; gap: 16px; }
 .tools.admin h1 { margin: 0; }
+/* The page scrolls as a whole: don't let tall sections (like the tables) get squashed. */
+.tools.admin > * { flex-shrink: 0; }
 .admin-login { max-width: 380px; }
 .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
 .stat { display: flex; flex-direction: column; gap: 4px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
@@ -673,3 +675,21 @@ body.py-resizing iframe, body.py-resizing .turtle-stage { pointer-events: none; 
   padding: 4px 10px; border-radius: 999px; font-size: 12px; white-space: nowrap; pointer-events: none;
   background: var(--accent); color: #fff;
 }
+
+/* Admin: short links */
+.links-panel { display: flex; flex-direction: column; gap: 12px; }
+.links-panel h2, .admin-h2 { margin: 8px 0 0; }
+.link-form-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+.link-form-row > .field { flex: 1 1 220px; }
+.link-form-row > .link-url, .link-form-row > .link-note { flex: 2 1 320px; }
+.link-name { display: flex; align-items: center; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); overflow: hidden; }
+.link-name .code-input { flex: 1; min-width: 80px; border: 0; border-radius: 0; background: transparent; }
+.link-prefix { padding-left: 10px; color: var(--muted); font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 13px; white-space: nowrap; }
+.link-cell { display: flex; align-items: center; gap: 8px; }
+.link-target { max-width: 280px; overflow: hidden; text-overflow: ellipsis; color: var(--muted); }
+.links-table tr.expired td { opacity: 0.6; }
+.expired-tag { color: var(--offline); font-weight: 600; }
+.qr-overlay { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 16px; background: rgb(0 0 0 / 55%); }
+.qr-box { align-items: center; max-width: min(92vw, 520px); }
+.qr-box img { width: min(80vw, 420px); height: auto; border-radius: 8px; background: #fff; }
+.qr-text { font-size: clamp(18px, 4vw, 26px); font-family: ui-monospace, "SF Mono", Menlo, monospace; word-break: break-all; text-align: center; }

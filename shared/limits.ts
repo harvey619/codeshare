@@ -24,7 +24,8 @@ export function normalizeRoomName(raw: string): string | null {
 }
 
 // "/tools/..." and "/view/..." are app pages, never rooms ("/tools/qr" normalises to "tools-qr").
-const RESERVED = ["tools", "view", "admin"];
+// "/go/..." are short links.
+const RESERVED = ["tools", "view", "admin", "go"];
 export function isReservedRoom(name: string): boolean {
   return RESERVED.some((r) => name === r || name.startsWith(r + "-"));
 }

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import LinksPanel from "./LinksPanel";
 
 // The teacher's dashboard: every room the directory knows about, with End and Delete.
 // The admin token is kept in this browser only.
@@ -36,11 +37,14 @@ export default function AdminPage() {
   const [filter, setFilter] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [tick, setTick] = useState(0); // Refresh also reloads the short links
 
   const api = useCallback(
-    async (path: string, method = "GET") => {
-      const res = await fetch(`/api/admin/${path}`, { method, headers: { Authorization: `Bearer ${token}` } });
-      const body = await res.json().catch(() => ({}));
+    async (path: string, method = "GET", body?: unknown) => {
+      const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+      if (body !== undefined) headers["Content-Type"] = "application/json";
+      const res = await fetch(`/api/admin/${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+      const result = await res.json().catch(() => ({}));
       if (res.status === 401) {
         try {
           localStorage.removeItem(KEY);
@@ -49,8 +53,8 @@ export default function AdminPage() {
         }
         setToken("");
       }
-      if (!res.ok) throw new Error(body.error ?? `Request failed (${res.status})`);
-      return body;
+      if (!res.ok) throw new Error(result.error ?? `Request failed (${res.status})`);
+      return result;
     },
     [token],
   );
@@ -143,7 +147,15 @@ export default function AdminPage() {
     <main className="tools admin">
       <div className="tool-top">
         <h1>Admin</h1>
-        <button className="btn small" onClick={refresh}>Refresh</button>
+        <button
+          className="btn small"
+          onClick={() => {
+            refresh();
+            setTick((n) => n + 1);
+          }}
+        >
+          Refresh
+        </button>
         <button className="btn small danger" onClick={clearEmpty} disabled={!!busy}>
           {busy === "clear-empty" ? "Clearing…" : "Clear empty rooms"}
         </button>
@@ -178,6 +190,9 @@ export default function AdminPage() {
         </div>
       )}
 
+      <LinksPanel api={api} tick={tick} onError={setError} />
+
+      <h2 className="admin-h2">Rooms</h2>
       <input className="code-input admin-filter" type="search" placeholder="Filter rooms" value={filter} onChange={(e) => setFilter(e.target.value)} aria-label="Filter rooms" />
 
       {data && rooms.length === 0 && <p className="side-note">No rooms yet. Rooms appear here once someone edits or joins them.</p>}

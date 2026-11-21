@@ -5,6 +5,7 @@ import { LIMITS, TokenBucket, isReservedRoom, normalizeRoomName } from "../share
 import { sniffImageType } from "./images";
 import { readViewToken, makeViewToken } from "./viewToken";
 import { Directory } from "./directory";
+import { LINK_LIMITS, checkTarget, normalizeSlug } from "../shared/links";
 
 export { Directory };
 import { MAIN_ID, dedupeTabs, textKey, type FileTab } from "../shared/files";
@@ -557,6 +558,29 @@ async function handleAdmin(request: Request, env: Env, path: string) {
     return json({ deleted, checked: candidates.length }, 200);
   }
 
+  // Short links: list, add or edit, delete.
+  if (path === "/api/admin/links" && request.method === "GET") {
+    return json({ links: await env.Directory.getByName("main").listLinks() }, 200);
+  }
+  if (path === "/api/admin/links" && request.method === "POST") {
+    const body = (await request.json().catch(() => null)) as { slug?: unknown; url?: unknown; note?: unknown; expires?: unknown; from?: unknown } | null;
+    if (!body) return json({ error: "bad request" }, 400);
+    const slug = normalizeSlug(String(body.slug ?? ""));
+    if (!slug) return json({ error: "Give the link a name (letters, numbers and dashes)" }, 400);
+    const target = checkTarget(String(body.url ?? ""), new URL(request.url).host);
+    if ("error" in target) return json(target, 400);
+    const expires = typeof body.expires === "number" && Number.isFinite(body.expires) ? body.expires : null;
+    const note = String(body.note ?? "").trim().slice(0, LINK_LIMITS.noteLen);
+    const from = typeof body.from === "string" ? body.from : null;
+    const error = await env.Directory.getByName("main").saveLink({ slug, url: target.url, note, expires }, from);
+    return error ? json({ error }, 409) : json({ ok: true, slug }, 200);
+  }
+  const linkDelete = path.match(/^\/api\/admin\/links\/([a-z0-9-]+)$/);
+  if (linkDelete && request.method === "DELETE") {
+    await env.Directory.getByName("main").deleteLink(linkDelete[1]);
+    return json({ ok: true }, 200);
+  }
+
   const action = path.match(/^\/api\/admin\/rooms\/([^/]+)\/(end|delete)$/);
   if (action && request.method === "POST") {
     const room = roomFromPath(action[1]);
@@ -569,6 +593,33 @@ async function handleAdmin(request: Request, env: Env, path: string) {
   }
   return json({ error: "not found" }, 404);
 }
+
+// harveycodes.com/go/<name>: send the visitor on. 302 and no-store so editing a link takes effect at once.
+async function openShortLink(env: Env, path: string) {
+  let raw = "";
+  try {
+    raw = decodeURIComponent(path.slice(4));
+  } catch {
+    // malformed: treated as not found
+  }
+  const slug = normalizeSlug(raw.replace(/\/+$/, ""));
+  const url = slug ? await env.Directory.getByName("main").openLink(slug) : null;
+  if (url) return new Response(null, { status: 302, headers: { Location: url, "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" } });
+  const name = slug ? `/go/${slug}` : "This link";
+  return new Response(LINK_NOT_FOUND.replace("{name}", name), {
+    status: 404,
+    headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" },
+  });
+}
+
+const LINK_NOT_FOUND = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Link not found</title><style>
+:root{color-scheme:light dark;--bg:#fff;--fg:#1a1a1a;--muted:#666;--accent:#2563eb}
+@media (prefers-color-scheme:dark){:root{--bg:#16181d;--fg:#e8e8e8;--muted:#9aa0a6;--accent:#7aa2ff}}
+body{margin:0;min-height:100vh;display:grid;place-items:center;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,sans-serif;padding:16px;box-sizing:border-box}
+main{max-width:420px;text-align:center}h1{font-size:22px;margin:0 0 8px}p{color:var(--muted);margin:0 0 16px}a{color:var(--accent)}
+</style></head><body><main><h1>Link not found</h1><p>{name} doesn't exist or has expired. Check the spelling, or ask your teacher for a new link.</p>
+<a href="/">Go to harveycodes.com</a></main></body></html>`;
 
 /** Forward a request to a room's Durable Object under a rewritten path, optionally read-only. */
 async function toRoom(env: Env, room: string, request: Request, path: string, viewOnly: boolean) {
@@ -587,6 +638,7 @@ export default {
     const path = new URL(request.url).pathname;
 
     if (path.startsWith("/api/admin/")) return handleAdmin(request, env, path);
+    if (path === "/go" || path.startsWith("/go/")) return openShortLink(env, path);
 
     // View-only links: the token decrypts to the room; the browser never learns its name.
     const viewSocket = path.match(VIEW_SOCKET);

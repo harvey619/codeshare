@@ -100,3 +100,73 @@ test("clear empty rooms deletes blank rooms and keeps ones with work", async ({ 
   expect(left).not.toContain(blank);
   expect(left).toContain(full);
 });
+
+test("short links: unknown names show a friendly page, admin API needs the token", async ({ request }) => {
+  const missing = await request.get(`/go/nope-${Date.now()}`, { maxRedirects: 0 });
+  expect(missing.status()).toBe(404);
+  expect(await missing.text()).toContain("Link not found");
+  expect([401, 503]).toContain((await request.get("/api/admin/links")).status());
+  expect([401, 503]).toContain((await request.post("/api/admin/links", { data: { slug: "x", url: "https://example.com" } })).status());
+});
+
+test("short links: add, open, count, edit, QR and delete from the admin page", async ({ browser, request }) => {
+  const token = adminToken();
+  test.skip(!token, "no admin token available");
+  const slug = `e2e-${Date.now()}`;
+  const admin = await (await browser.newContext()).newPage();
+  await admin.goto("/admin");
+  await admin.getByLabel("Admin token").fill(token!);
+  await admin.getByRole("button", { name: "Open dashboard" }).click();
+
+  const panel = admin.getByRole("region", { name: "Short links" });
+  await panel.getByLabel("Short name").fill(slug);
+  await panel.getByLabel("Long link").fill("example.com/first?a=1");
+  await panel.getByLabel("Note (optional)").fill("e2e test link");
+  await panel.getByRole("button", { name: "Add link" }).click();
+  const row = panel.locator("tr", { hasText: `/go/${slug}` });
+  await expect(row).toContainText("example.com/first?a=1");
+
+  // The same name can't be added twice; bad links are refused.
+  await panel.getByLabel("Short name").fill(slug);
+  await panel.getByLabel("Long link").fill("https://example.com/other");
+  await panel.getByRole("button", { name: "Add link" }).click();
+  await expect(panel.getByRole("alert")).toContainText("already exists");
+  await panel.getByLabel("Short name").fill(`${slug}-bad`);
+  await panel.getByLabel("Long link").fill("javascript:alert(1)");
+  await panel.getByRole("button", { name: "Add link" }).click();
+  await expect(panel.getByRole("alert")).toContainText("https://");
+  await panel.getByLabel("Short name").fill("");
+  await panel.getByLabel("Long link").fill("");
+
+  // Opening it redirects and is counted.
+  const hit = await request.get(`/go/${slug}`, { maxRedirects: 0 });
+  expect(hit.status()).toBe(302);
+  expect(hit.headers()["location"]).toBe("https://example.com/first?a=1");
+  expect((await request.get(`/go/${slug.toUpperCase()}/`, { maxRedirects: 0 })).status()).toBe(302); // case and trailing slash don't matter
+  await admin.getByRole("button", { name: "Refresh" }).click();
+  await expect(row.locator("td").nth(2)).toHaveText("2");
+
+  // Edit: rename and change where it goes; the old name stops working.
+  await row.getByRole("button", { name: "Edit" }).click();
+  await panel.getByLabel("Short name").fill(`${slug}-new`);
+  await panel.getByLabel("Long link").fill("https://example.com/second");
+  await panel.getByRole("button", { name: "Save changes" }).click();
+  const renamed = panel.locator("tr", { hasText: `/go/${slug}-new` });
+  await expect(renamed).toContainText("example.com/second");
+  expect((await request.get(`/go/${slug}`, { maxRedirects: 0 })).status()).toBe(404);
+  expect((await request.get(`/go/${slug}-new`, { maxRedirects: 0 })).headers()["location"]).toBe("https://example.com/second");
+
+  // QR code.
+  await renamed.getByRole("button", { name: "QR" }).click();
+  const dialog = admin.getByRole("dialog");
+  await expect(dialog.locator("img")).toHaveAttribute("src", /^data:image\/png/);
+  await expect(dialog).toContainText(`/go/${slug}-new`);
+  await admin.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+
+  // Delete.
+  admin.once("dialog", (d) => d.accept());
+  await renamed.getByRole("button", { name: "Delete" }).click();
+  await expect(renamed).toBeHidden();
+  expect((await request.get(`/go/${slug}-new`, { maxRedirects: 0 })).status()).toBe(404);
+});
