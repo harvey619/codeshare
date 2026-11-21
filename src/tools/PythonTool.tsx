@@ -11,9 +11,9 @@ import Output from "../run/Output";
 import TurtleStage from "../run/TurtleStage";
 import { TurtleView } from "../run/turtleView";
 import { PY_EXAMPLES } from "./pyExamples";
+import { CheatSheet, ExamplesMenu, SplitHandle } from "./pyParts";
 
 const SAMPLE = PY_EXAMPLES[0].code;
-const GROUPS = [...new Set(PY_EXAMPLES.map((e) => e.group))];
 
 export default function PythonTool() {
   const host = useRef<HTMLDivElement>(null);
@@ -21,6 +21,10 @@ export default function PythonTool() {
   const runner = useRef<Runner | null>(null);
   const [saved, setSaved] = useStored("tools.python", SAMPLE);
   const initial = useRef(saved);
+  const [splitSaved, setSplitSaved] = useStored("tools.python.split", "0.5");
+  const split = Number(splitSaved) || 0.5;
+  const [cheat, setCheat] = useStored("tools.python.cheat", "");
+  const splitBox = useRef<HTMLDivElement>(null);
   const [stdin, setStdin] = useState("");
   const [lines, setLines] = useState<OutLine[]>([]);
   const [status, setStatus] = useState<string | null>(null);
@@ -123,26 +127,25 @@ export default function PythonTool() {
         ) : (
           <button className="btn run" onClick={run} title="Run (Ctrl/Cmd + Enter)">▶ Run</button>
         )}
-        <select className="code-input py-examples" value="" onChange={(e) => loadExample(e.target.value)} aria-label="Examples">
-          <option value="" disabled>Examples…</option>
-          {GROUPS.map((g) => (
-            <optgroup key={g} label={g}>
-              {PY_EXAMPLES.filter((e) => e.group === g).map((e) => (
-                <option key={e.id} value={e.id}>{e.name}</option>
-              ))}
-            </optgroup>
-          ))}
-        </select>
+        <ExamplesMenu onPick={loadExample} />
+        <button className={`btn${cheat ? " active" : ""}`} aria-pressed={!!cheat} onClick={() => setCheat(cheat ? "" : "1")}>
+          <span aria-hidden>💡</span> Cheat sheet
+        </button>
         <button className="btn" onClick={() => downloadBlob(new Blob([view.current?.state.doc.toString() ?? ""], { type: "text/plain" }), "main.py")}>Download .py</button>
         <span className="side-note">Runs in your browser. Your code is saved in this browser. turtle, numpy and pandas work when you import them.</span>
       </div>
-      <div className="py-split">
+      <div
+        className={`py-split${cheat ? " with-cheat" : ""}`}
+        ref={splitBox}
+        style={{ "--py-left": `${split}fr`, "--py-right": `${1 - split}fr` } as React.CSSProperties}
+      >
         <div className="py-left">
           <div ref={host} className="py-editor" />
           {interactive === false && (
             <textarea className="stdin" value={stdin} onChange={(e) => setStdin(e.target.value)} rows={1} placeholder="Answers for input(): one per line, typed before you press Run" aria-label="Answers" />
           )}
         </div>
+        <SplitHandle ratio={split} onChange={(r) => setSplitSaved(r.toFixed(3))} container={splitBox} />
         <div className={`py-right${turtleOn ? " with-turtle" : ""}`}>
           {turtleOn && <TurtleStage view={turtleOn} className="tool" />}
           <div className="py-output" aria-label="Output" aria-live="polite">
@@ -159,6 +162,7 @@ export default function PythonTool() {
             />
           </div>
         </div>
+        {cheat && <CheatSheet onClose={() => setCheat("")} />}
       </div>
     </div>
   );

@@ -183,7 +183,8 @@ test("every turtle example runs without errors", async ({ page }) => {
   const { PY_EXAMPLES } = await import("../src/tools/pyExamples");
   page.on("dialog", (d) => d.accept());
   for (const ex of PY_EXAMPLES.filter((e) => e.group !== "Basics")) {
-    await page.getByLabel("Examples").selectOption(ex.id);
+    await page.getByRole("button", { name: /Examples/ }).click();
+    await page.getByRole("group", { name: "Examples" }).getByRole("button", { name: ex.name }).click();
     await expect(page.locator(".py-editor .cm-content")).toContainText(ex.code.split("\n")[0]);
     await page.getByRole("button", { name: /Run/ }).click();
     await expect(page.locator(".turtle-stage")).toBeVisible({ timeout: 180_000 });
@@ -199,4 +200,31 @@ test("every turtle example runs without errors", async ({ page }) => {
     if (await stop.isVisible()) await stop.click();
     await expect(page.getByRole("button", { name: /Run/ })).toBeVisible({ timeout: 10_000 });
   }
+});
+
+test("playground: drag the divider, open the cheat sheet", async ({ page }) => {
+  await page.setViewportSize({ width: 1400, height: 800 });
+  await page.goto("/tools/python");
+  await page.evaluate(() => localStorage.removeItem("tools.python.split"));
+  await page.reload();
+  const width = async () => (await page.locator(".py-editor").boundingBox())!.width;
+  const before = await width();
+  const bar = (await page.getByRole("separator", { name: /Resize/ }).boundingBox())!;
+  await page.mouse.move(bar.x + bar.width / 2, bar.y + bar.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(bar.x + 300, bar.y + bar.height / 2, { steps: 5 });
+  await page.mouse.up();
+  expect(await width()).toBeGreaterThan(before + 200);
+  await page.reload(); // the size is remembered
+  expect(await width()).toBeGreaterThan(before + 200);
+  await page.getByRole("separator", { name: /Resize/ }).dblclick();
+  expect(Math.abs((await width()) - before)).toBeLessThan(5);
+
+  await page.getByRole("button", { name: /Cheat sheet/ }).click();
+  const sheet = page.getByRole("complementary", { name: "Cheat sheet" });
+  await expect(sheet).toContainText("for i in range(5):");
+  await sheet.getByRole("tab", { name: "Turtle" }).click();
+  await expect(sheet).toContainText("t.forward(100)");
+  await sheet.getByRole("button", { name: "Close cheat sheet" }).click();
+  await expect(sheet).toBeHidden();
 });

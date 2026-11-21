@@ -1,11 +1,13 @@
 // Starter programs for the Python playground. They're plain desktop Python,
 // so they run the same in VS Code or IDLE.
 
-export type PyExample = { id: string; name: string; group: "Basics" | "Turtle drawing" | "Turtle games"; code: string };
+export type PyExample = { id: string; name: string; icon: string; blurb: string; group: "Basics" | "Turtle drawing" | "Turtle games"; code: string };
 
 export const PY_EXAMPLES: PyExample[] = [
   {
     id: "hello",
+    icon: "👋",
+    blurb: "Print text and ask a question",
     name: "Hello and input()",
     group: "Basics",
     code: `# Press Run (or Ctrl/Cmd + Enter)
@@ -19,6 +21,8 @@ print("Squares:", squares)
   },
   {
     id: "guess",
+    icon: "🔢",
+    blurb: "Loops, if/else and random numbers",
     name: "Guess the number",
     group: "Basics",
     code: `import random
@@ -41,6 +45,8 @@ while True:
   },
   {
     id: "spiral",
+    icon: "🌀",
+    blurb: "A colourful pattern with a for loop",
     name: "Rainbow spiral",
     group: "Turtle drawing",
     code: `import turtle
@@ -61,6 +67,8 @@ turtle.done()
   },
   {
     id: "star",
+    icon: "⭐",
+    blurb: "Fill a shape with colour",
     name: "Filled star",
     group: "Turtle drawing",
     code: `import turtle
@@ -81,6 +89,8 @@ turtle.done()
   },
   {
     id: "flower",
+    icon: "🌸",
+    blurb: "Repeat circles to make a flower",
     name: "Circle flower",
     group: "Turtle drawing",
     code: `import turtle
@@ -100,6 +110,8 @@ turtle.done()
   },
   {
     id: "keys",
+    icon: "⌨️",
+    blurb: "Move the turtle with the arrow keys",
     name: "Draw with arrow keys",
     group: "Turtle games",
     code: `import turtle
@@ -136,6 +148,8 @@ turtle.done()
   },
   {
     id: "click",
+    icon: "🖱️",
+    blurb: "Click anywhere to draw lines",
     name: "Click to draw",
     group: "Turtle games",
     code: `import turtle
@@ -157,6 +171,8 @@ turtle.done()
   },
   {
     id: "catch",
+    icon: "🐢",
+    blurb: "Click the turtle before it hops away",
     name: "Catch the turtle",
     group: "Turtle games",
     code: `import turtle
@@ -199,6 +215,8 @@ turtle.done()
   },
   {
     id: "pong",
+    icon: "🏓",
+    blurb: "Two players: W/S and Up/Down",
     name: "Pong (2 players)",
     group: "Turtle games",
     code: `import turtle
@@ -270,6 +288,8 @@ while True:
   },
   {
     id: "snake",
+    icon: "🐍",
+    blurb: "Eat the food and grow",
     name: "Snake",
     group: "Turtle games",
     code: `import turtle
